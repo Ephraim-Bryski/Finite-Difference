@@ -1,17 +1,22 @@
 from FD import *
+import numpy as np
+
+
+d = Domain({"a":range(0,10),"b":range(0,10)})
+
+#print(d.axes_lengths)
+
+
+f = Field(d)
+#f.set("a+1",location={"b":1})
+f.set("exp(a**2+b**2)")
 
 
 
+f2 = Field(d)
+f2.set("1",location={"a":1})
 
-t = Field({"a":3,"b":4,"c":2},None)
-
-
-mini = Field({"c":4,"b":2},4)
-
-t[{"a":2}] = mini 
-
-t[{"a":2,"b":3}] = Field({"c":2},999)
-mini.show(rows=["b"],cols=["c"])
-t.show(rows=["a","b"],cols=["c"])
-some_slice = t[{"b":3}]
-some_slice.show(rows=["a"],cols=["c"])
+fnew = f+f2
+print(f.data)
+print(f2.data)
+print(fnew.data)

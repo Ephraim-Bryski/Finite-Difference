@@ -1,41 +1,72 @@
 import numpy as np
 from tabulate import tabulate
 import operator
+import math
+import numexpr
+import itertools
 
-sldkfjdlskfjdlsksadfds
+
 
 
 # TODO replace with class I wrote on scratch
 
-class Dimension:
-
-    def __init__(self,start,end,step):
-        self.start = start
-        self.end = end
-        self.step = step
-        assert self.n_elem() % 1 == 0, "must have even divisions between start and end"
-
-    @property
-    def n_elem(self):
-        return (self.end-self.start)/self.step
-
-    @property
-    def elements(self):
-        return list(range(self.start,self.end+self.step,self.step))
-
-    def to_field(self):
-        return Field((self),self.elements)
 
 
-# TODO: add Domain class
 class Domain:
-    pass
+    def __init__(self,axes):
+        # dimensions is a dictionary with the dimension object and range
+        # TODO: stricter assertion about what's inside
+        # TODO: split into space and time?
+        assert type(axes)==dict, "axes must be input dictionary of dimensions and range of values"
 
 
+        for i in range(len(axes)):
+            axis_name = list(axes.keys())[i]
+            axis_values = list(axes.values())[i]
+            assert type(axis_name)==str, "axes keys must be strings, the name of the axis"
+            assert type(axis_values)==range, "axes values must be ranges"
+
+            axes[axis_name] = list(axis_values) 
+
+
+        self.axes = axes
+        
+
+        # would also have information like periodicity
+
+
+    @property
+    def axes_lengths(self):
+        return [len(list(axis_range)) for axis_range in self.axes.values()]
+
+    @property
+    def axes_names(self):
+        return list(self.axes.keys())
+    
+    @property
+    def axes_values(self):
+        ranges = self.axes.values()
+        return [list(axis_range) for axis_range in ranges]
+    
 
 
 class Field:
 
+
+    def __init__(self,domain):
+        
+        assert isinstance(domain,Domain), "domain must be a Domain object"
+
+        self.domain = domain
+        axes_lengths = [len(value) for value in domain.axes.values()]
+        data_length = math.prod(axes_lengths)
+        #self.data = [None for _ in range(data_length)]
+
+        self.data = np.full((data_length,1),np.nan)  # converting the data to a numpy array for rapid elementwise arithmetic
+
+
+    # TODO: has not been modified since I switched to making Fields take Domains
+    # I might just not use show anymore though, and instead rely on plotting
     def show(self,**layout):
         # not using __str__ since that doesn't allow for custom arguments
         # instead called with my_field.show()
@@ -237,15 +268,15 @@ class Field:
         # returns the 1d field index
         # gets the value of a field at a specified index
         
-        # idxs must be a dictionary with the keys being the dims names and the value being the index
+        # idxs must be a dictionary with the keys being the dims and the value being the index
 
 
-        assert set(self.dims.keys())==set(idxs.keys()), "All dimensions of indexing must match dimensions of field"
+        assert set(self.domain.axes_names)==set(idxs.keys()), "All dimensions of indexing must match dimensions of field"
 
-        idxs_sorted = {key: idxs[key] for key in self.dims}
+        idxs_sorted = {key: idxs[key] for key in self.domain.axes_names}
         idx_values = list(idxs_sorted.values())
 
-        dims_length = list(self.dims.values())
+        dims_length = self.domain.axes_lengths
         place_count = Field.__cum_placement(dims_length)
 
 
@@ -280,52 +311,92 @@ class Field:
                 return False
         return True
     
-    def __set_slice(self,slice,loc):
-        # sets a slice of the field equal to the given slice at the specified location
-        # slice is a field with a lower dimensionality than self
 
-        
-        assert Field.__check_slice_loc(self.dims,loc), "slice location not in bounds of field"
-
+    def set(self,expression,location={}):
         
 
-        if type(slice)==int or type(slice)==float:
-            
-            # iterate through all indexes of self, checking if the indexes are part of the slice location
-            dim_names = list(self.dims.keys())
-            dim_lengths = list(self.dims.values())
-            for i in range(len(self.data)):
-                dim_idxs = Field.__get_dim_idxs(dim_lengths,i)
-                field_idxs = dict(zip(dim_names,dim_idxs))
-                if Field.__dict_agree(field_idxs,loc):
-                    self.__set_value(field_idxs,slice)
-            return slice
+        def transpose(nested_list):
+            transposed_list = [[row[i] for row in nested_list] for i in range(len(nested_list[0]))]
+            return transposed_list
 
-        elif isinstance(slice,Field):
 
-            slice_dims = set(slice.dims.keys())
-            field_dims = set(self.dims.keys())
-            loc_dims = set(loc.keys())
-            assert field_dims-slice_dims==loc_dims , "dimnsions of location must be dimensions in field but not in slice"
-            assert len(slice_dims-field_dims)==0   , "dimensions in slice not in field"
-            Field.__dict_agree(self.dims,slice.dims), "dimension disagreement with slice"
-
-            # iterate through all indexes of slice
-            dim_lengths = list(slice.dims.values())
-            dim_names = list(slice.dims.keys())
-            for i in range(len(slice.data)):
-                dim_idxs = Field.__get_dim_idxs(dim_lengths,i)
-                dim_idxs = dict(zip(dim_names,dim_idxs))
-
-                val = slice.data[i]
-
-                field_idxs = {**dim_idxs,**loc}
-
-                self.__set_value(field_idxs,val)
+        axes_lengths_dict = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
         
-        else:
-            raise Exception("slice must be a field or number")
+        assert Field.__check_slice_loc(axes_lengths_dict,location), "slice location not in bounds of field"
 
+
+
+
+        # TODO: to find dimensions it would have to figure out what variables there are
+        # this allows me to use those assertions
+        # slice_dims = set(slice.dims.keys())
+
+
+        
+        field_dims = set(self.domain.axes_names)
+        loc_dims = set(location.keys())
+        # assert field_dims-slice_dims==loc_dims , "dimnsions of location must be dimensions in field but not in slice"
+        # assert len(slice_dims-field_dims)==0   , "dimensions in slice not in field"
+        # Field.__dict_agree(self.dims,slice.dims), "dimension disagreement with slice"
+
+
+        # evaluate the expression for all combinations of dimension values
+
+
+    
+
+        # only evaluate the expression over dimensions not in location:
+
+        domain_axes_names = self.domain.axes_names
+        domain_axes_values = self.domain.axes_values
+        domain_axes_lengths = self.domain.axes_lengths
+
+        substitute_axes_names = []
+        substitute_axes_values = []
+        substitute_axes_lengths = []
+
+
+
+        for i in range(len(domain_axes_names)):
+            axis_name = domain_axes_names[i]
+            axis_values = domain_axes_values[i]
+            axis_lengths = domain_axes_lengths[i]
+
+            if axis_name not in location.keys():
+                substitute_axes_names.append(axis_name)
+                substitute_axes_values.append(axis_values)
+                substitute_axes_lengths.append(axis_lengths)
+
+        # constructs nested list of all combinations of values
+        value_combs = transpose([list(comb) for comb in itertools.product(*substitute_axes_values)])
+        subs = dict(zip(substitute_axes_names,value_combs))
+        try:
+            data = numexpr.evaluate(expression,subs)
+        except:
+            raise Exception("either variable mismatch or cannot parse expression")
+
+
+        # if the expression is just a constant, numexpr just returns a single value instead of an array
+        if data.shape==():
+            n_subs = len(value_combs[0])
+            data = np.full((n_subs,1),float(data))
+
+
+
+        # need to take location into account
+        # iterate through all indexes of slice
+        for i in range(len(data)):
+            # using get_dim_idxs only works because the way itertools flattens the data is the same way i flatten the field data
+            dim_idxs_num = Field.__get_dim_idxs(substitute_axes_lengths,i)
+            dim_idxs = dict(zip(substitute_axes_names,dim_idxs_num))
+
+            val = data[i]
+
+            field_idxs = {**dim_idxs,**location}
+
+            self.__set_value(field_idxs,val)
+
+     
 
     # TODO: not sure what to do with this, could return a Slice or Subfield, which inherits from Tensor but doesnt allow for math operations?
     # or could just set Domain to None, which then prohibits calculations
@@ -391,55 +462,6 @@ class Field:
                 slice.__set_value(slice_idxs,val)
         return slice
 
-    # WONT USE, instead set it to an expression, with location empty
-    def __make_array_field(self,dim_names,nested_list):
-         # array is a numpy n-dimensional array
-        # dim_names is a list of string for each dimension name of the array
-
-        array = np.array(nested_list)
-
-        dim_size = array.shape
-        assert len(dim_size)==len(dim_names), "must have one to one match of dimension names and array dimensions"
-
-        dims = dict(zip(dim_names,dim_size))
-
-        self.data = list(array.flatten()) # numpy flattens it in the same way I want to flatten my data
-        self.dims = dims
-
-    # WONT USE, istead set it to the value (in a string), with location empty
-    def __make_constant_field(self,dims,value):
-         # creates an empty field
-        # dims is a dictionary with the length of the field along each dims
-
-        n_elems = np.product(np.array(list(dims.values())))
-        init_data = [value for i in range(n_elems)]
-
-        self.data = init_data
-        self.dims = dims
-    
-    # TODO: replace with code i wrote on the scratch
-    def __init__(self,dims,values):
-        # init_field and mat2field
-        # init_field: dim dictionary and value
-        # mat2field: list of dims and matrix
-
-        if type(dims)==list and type(values)==list:
-            self.__make_array_field(dims,values)
-        elif type(dims)==dict and type(values)!=list:
-            self.__make_constant_field(dims,values)
-        else:
-            raise Exception("nope")
-        
-    # WONT USE (no indexing fields)
-    def __getitem__(self,idxs):
-        assert type(idxs)==dict, "indexing must be contained in a single dictionary"
-        return self.__get_slice(idxs)
-
-    # WONT USE (no indexing fields)
-    def __setitem__(self,idxs,value):
-        assert type(idxs)==dict, "indexing must be contained in a single dictionary"
-        assert type(value)==float or type(value)==int or isinstance(value,Field)
-        self.__set_slice(value,idxs)
 
     def __str__(self) -> str:
         return f"{len(self.dims)}-dimensional Field, dimension lengths: {self.dims}"
@@ -447,8 +469,42 @@ class Field:
     
     # TODO instead just check for whether the domains match
 
-    @staticmethod
+
     def __field_op(op1,op2,op):
+
+        def get_operand_data(op):
+            # both extracts operand data and adds the domains for later comparison
+
+            if isinstance(op,Field):
+                domains.append(op.domain)
+                return op.data
+            elif type(op)==float or type(op)==int:
+                return op
+            else:
+                raise ValueError("can only perform arithmetic between fields or between fields and numbers")
+
+
+        domains = []
+
+
+        if op2==None:
+            # case for single argument, i think just negation
+            new_field = Field(op1.dims,None)
+            new_field.data = [op(val) for val in op1.data]
+
+        new_field = Field(op1.domain)
+        new_field.data = op(get_operand_data(op1),get_operand_data(op2))
+
+
+        if len(domains)==2 and domains[0]!=domains[1]:
+            raise ValueError("can only perform arithmetic operations between fields with the same domain")
+        
+
+        return new_field
+
+    # this method was used when there was no 
+    @staticmethod
+    def __OLD_field_op(op1,op2,op):
 
 
         # WONT USE
@@ -505,7 +561,7 @@ class Field:
         return Field.__field_op(self,None,operator.neg)
     
     def __add__(self,other):
-        return Field.__field_op(self,other,operator.add)
+        return self.__field_op(other,operator.add)
     
     def __sub__(self,other):
         return Field.__field_op(self,other,operator.sub)
@@ -536,9 +592,6 @@ class Field:
     
     def __rpow__(self,other):
         raise Exception("cannot raise to field")
-    
-
-
     
 
 
