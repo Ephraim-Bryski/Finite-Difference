@@ -6,7 +6,8 @@ import numexpr
 import itertools
 
 
-
+# TODO option for kernels where output is in the middle of the input e.g fi+1/2=(fi+1-fi)/h   -->   would create new field one row larger (whole to half numbers, or squares to edges) or one row smaller (half to whole numbers, or edges to squares)
+# example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
 # TODO kind of sad cause it was a huge waste of time, but I should just construct the fields using numpy arrays instead, would be much simpler
 
@@ -16,11 +17,6 @@ class Domain:
     def __init__(self,axes,**kwargs):
         # dimensions is a dictionary with the dimension object and range
         # TODO: split into space and time?
-
-
-
-
-
 
         def check_evenly_spaced_array(vals):
             try:
@@ -66,9 +62,22 @@ class Domain:
 
         self.axes = axes
         self.periodic = periodic
+        self.time = 0 # this value steps each time
         
 
         # would also have information like periodicity
+
+
+    def step_time(self,time_axis):
+        # TODO: allow for different times of timestep (runge-kutta)
+        # for now just doing euler timestep
+        assert type(time_axis)==str, "time_axis must be name of axis"
+        assert time_axis in self.axes_names, "time_axis must be name of axis"
+
+        self.time+=1
+
+
+
 
     @property
     def axes_lengths(self):
@@ -142,36 +151,44 @@ class Unknown:
         else:
             return Unknown()
                 
-    def __add():
-        return Unknown()
-        
-
-
     def __mul__(self,other):
         return Unknown.__multiply(other)
 
     def __rmul__(self,other):
         return Unknown.__multiply(other)
 
+    def __add__(self,_):
+        return Unknown()
+    
+    def __radd__(self,_):
+        return Unknown()
+    
+    def __div__(self,_):
+        return Unknown()
+    
+    def __rdiv__(self,_):
+        return Unknown()
+    
+    def __pow__(self,_):
+        return Unknown()
+    
+    def __rpow__(self,_):
+        return Unknown()
 
-    def __add__(self,other):
-        return Unknown.__add()
-    
-    def __radd__(self,other):
-        return Unknown.__add()
-    
     def __repr__(self):
         return "?"    
 
 
 class Field:
 
-
     # TODO would probably want kernel to be constructed in diff instead of the user making it
     def diff(self,kernel):
         assert isinstance(kernel,Kernel),"input must be a kernel object"
 
-        data_length = len(self.data)
+
+        data_flat = self.data.flatten()
+
+        data_length = len(data_flat)
         dim_names = self.domain.axes_names
         dim_lengths = self.domain.axes_lengths
         kernel_vals = kernel.values
@@ -224,11 +241,11 @@ class Field:
                 col_idx = self.__get_field_idx(shifted_dim_idxs)      
                 diff_matrix[row_idx,col_idx] = val
 
-        new_data = diff_matrix @ self.data
+        new_data_flat = diff_matrix @ data_flat
+        new_data = np.reshape(new_data_flat,self.domain.axes_lengths)
         new_field = Field(self.domain)
         new_field.data = new_data
         return new_field
-
 
 
 
@@ -238,11 +255,14 @@ class Field:
         assert isinstance(domain,Domain), "domain must be a Domain object"
 
         self.domain = domain
-        axes_lengths = [len(value) for value in domain.axes.values()]
-        data_length = math.prod(axes_lengths)
+
+        self.data = np.full(self.domain.axes_lengths,Unknown(),dtype="object")
+        #axes_lengths = [len(value) for value in domain.axes.values()]
         #self.data = [None for _ in range(data_length)]
 
-        self.data = np.full((data_length,1),np.nan)  # converting the data to a numpy array for rapid elementwise arithmetic
+
+
+        #self.data = np.full((data_length,1),)  # converting the data to a numpy array for rapid elementwise arithmetic
 
 
     # I might just not use show anymore though, and instead rely on plotting
@@ -272,7 +292,7 @@ class Field:
 
             M =np.matrix([[None for j in range(n_cols)] for i in range(n_rows)])
 
-
+            flat_data = field.data.flatten()
             for i in range(n_rows):
                 for j in range(n_cols):
                     row_idxs = Field.__get_dim_idxs(row_counts,i)
@@ -281,7 +301,7 @@ class Field:
 
                     idxs = {**dict(zip(row_dims,row_idxs)),**dict(zip(col_dims,col_idxs))}
                     field_idx = self.__get_field_idx(idxs)
-                    M_val = field.data[field_idx]
+                    M_val = flat_data[field_idx]
                     M[i,j] = M_val
 
 
@@ -470,6 +490,20 @@ class Field:
         return idx_glob
 
 
+    def __idxs_tuple(self,idxs):
+
+        idxs_filled = dict()
+
+        for axis in self.domain.axes:
+            if axis not in idxs.keys():
+                idxs_filled[axis] = slice(None)
+            else:
+                idxs_filled[axis] = idxs[axis]
+
+
+        return tuple(idxs_filled[axis] for axis in self.domain.axes)
+
+
 
     def set(self,expression,location={}):
         
@@ -482,8 +516,6 @@ class Field:
         axes_lengths_dict = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
         
         assert Field.__check_slice_loc(axes_lengths_dict,location), "slice location not in bounds of field"
-
-
 
 
 
@@ -541,21 +573,25 @@ class Field:
         subs = dict(zip(substitute_axes_names,value_combs))
 
         try:
-            data = numexpr.evaluate(expression,subs)
+            data_flat = numexpr.evaluate(expression,subs)
         except:
             raise Exception("either variable mismatch or cannot parse expression")
 
 
         # if the expression is just a constant, numexpr just returns a single value instead of an array
-        if data.shape==():
+        if data_flat.shape==():
             n_subs = len(value_combs[0])
-            data = np.full((n_subs,1),float(data))
+            data = np.full((n_subs,1),float(data_flat))
+        else:
 
+            data = np.reshape(data_flat,self.domain.axes_lengths)
 
+        self.data[self.__idxs_tuple(location)] = data
 
         # need to take location into account
         # iterate through all indexes of slice
-        for i in range(len(data)):
+        """
+                for i in range(len(data)):
             # using get_dim_idxs only works because the way itertools flattens the data is the same way i flatten the field data
             dim_idxs_num = Field.__get_dim_idxs(substitute_axes_lengths,i)
             dim_idxs = dict(zip(substitute_axes_names,dim_idxs_num))
@@ -568,15 +604,32 @@ class Field:
             idx = self.__get_field_idx(field_idxs)
             self.data[idx] = val
 
+        """
+
 
     # TODO: function that adds boundary conditions
         # on each time step, you first assign field to something, then apply boundary conditions
         # a bit weird, but easy
 
     # TODO: right now loc is the indexes, might want to have it the location instead
-    def array(self,loc={}):
+    def get_data(self,loc={}):
         
-        def cut_dict(dict2,cut_keys):
+        
+        assert type(loc)==dict, "must input dictionary"
+        # TODO: write private nonstatic method that checks if it's a dictionary with all keys in dimension and numeric values, as this is done in multiple places
+
+        field_dims = set(self.domain.axes_names)
+        loc_dims = set(loc.keys())
+        dims = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
+        data = self.data
+        assert loc_dims.issubset(field_dims), "all indexed dimension must be field dimensions" 
+        assert Field.__check_slice_loc(dims,loc), "location out of range of field"
+
+        return data[self.__idxs_tuple(loc)]
+
+
+    """
+     def cut_dict(dict2,cut_keys):
             # construct a dict with cut_keys removed
             new_dict = {}
             for i in range(len(dict2)):
@@ -589,24 +642,15 @@ class Field:
             return new_dict
 
 
-        assert type(loc)==dict, "must input dictionary"
-        # TODO: write private nonstatic method that checks if it's a dictionary with all keys in dimension and numeric values, as this is done in multiple places
-
-        field_dims = set(self.domain.axes_names)
-        loc_dims = set(loc.keys())
-        
-        dims = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
-        data = self.data
-
-        assert loc_dims.issubset(field_dims), "all indexed dimension must be field dimensions" 
-        assert Field.__check_slice_loc(dims,loc), "location out of range of field"
-
-
         slice_dims = cut_dict(dims,list(loc.keys()))
+
+
 
         array = np.zeros(tuple(slice_dims.values()))
 
-        for field_idx in range(len(data)):
+
+       
+                for field_idx in range(len(data)):
 
             
             dim_idxs_vals = Field.__get_dim_idxs(self.domain.axes_lengths,field_idx)
@@ -620,8 +664,10 @@ class Field:
 
             
             array[slice_dim_idxs] = data[field_idx]
+   
 
         return array
+     """
 
 
 
