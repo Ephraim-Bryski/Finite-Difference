@@ -1,146 +1,34 @@
-test change
-
-sdf boop
-goal is to make a library for finite difference method
-
-Tensors
-    Tensor is high-dimensional data, like eta(x,y,z,t)
-    sort of combo of dictionaries and numpy arrays --> high dimensions with each dimension named
-    methods
-        show: shows it as a flattened matrix
-        indexing: get a slice (lower dimensional tensor, with the other dimensions set to a value), TODO: use method instead?
-        index assignment: assign a slice to a tensor or all to a constant value TODO: use method instead?
-        create tensor from nested list (like how numpy does it) 
-        create tensor specifying the size and setting to constant value
-
-    TODO
-        convolution
-            kernel could a seperate class (inherit from tensor?), and a method of the tensor is to apply a convolution with the kernel
-            used for numerical differentiation 
-            methods for constructing derivative kernels 
-            to perform convolution, could flatten tensors to 1d and expand kernel into matrix --> could solve it either direction then
-        specify where the boundary is
-    
+can do very basic (and very slow) simulations in multiple dimensions, but basically just limited to difusion and advection right now
 
 
+speed up by:
+    right now it differentiates on entire matrix across all time, just differentiate on current time
+
+replace matrix multiplication with convolution, makes it much simpler, Unknown type no longer required for convolution, multidimensional very simple then
+
+fields which are edges of other fields (e.g. temperature flux is on the edges of temperature cells)
+    would allow for boundary conditions on these derivative fields
 
 
-TODO
-
-Dimensions
-    class for dimension which is then used to construct the tensor
-    could specify bounds, interval size, and whether it's periodic
-    interval size could then be used directly as the dx term for derivative kernels
+need to figure out how to make defining kernels straightforward, possibilities:
 
 
-Domains?
-    collection of dimensions
+diff method for Field needs to divide by the step size
 
 
+methods for initial conditions and boundary conditions which would call set_expression
 
+for boundary conditions, allow to set value at last cell
 
-scrap everything about fixed vs nonfixed
+allow to get data based on coordinate instead of index
 
-just remove the builtin op functions for tensors, instead there's custom methods
+check variables in expression for set_expression --> better error messages for invalid expression
 
-    e.g tnew = t1.add(t2)
+show method can be much simpler now that im using numpy arrays instead
 
-then there's no conflict at all
+good visualization of fields
 
-
-dimension has to first be converted to a tensor
-    could be method of dimension, returns a tensor
-
-
-
-
-
-
-scrap all of that INSTEAD 
-    dimensions are just the dimension, no range, intervals etc.
-    domains are combination of dimensions with range, interval info
-    tensors (maybe call them fields) have a domain
-        tensors can only operate on eachother if they're in the same domain
-
-
-
-tensors of different dimensions CAN operate on each other
-they are first expanded to match the dimensions, then operated on
-    so if they're the same dimensions, it's just elementwise
-    can also handle when you're generating the field based on dimension coordinates
-    sort of like matlab elementwise
-
-
-x = Dimension(start=0,end=3,step=1)
-x_tensor = x.to_tensor()
-
-x_tensor is now a tensor with:
-    dim: (x) (object to x)
-    data: [0,1,2,3]
-
-
-y = Dimension(start=0,end=2,step=1)
-
-eta = x.to_tensor()+y.to_tensor()
-
-this creates a tensor with dimensions x and y
-
-eta is now a tensor with:
-    dim: (x,y)
-    data: [0,1,2,  1,2,3,   2,3,4,   3,4,5]
-
-
-
-
-
-
-instead
-
-everything could be expandable
-
-when the tensors match dimensions it would be exactly the same as what i have now
-
-just need to write a function to convert a dimension into a tensor
-
-then the opfunction for tensors
-
-
-could have dimension and tensor share the op function??
-
-when you create dimension you're ACTUALLY creating a dimension and a tensor which takes that dimension
-     no that doesnt work
-
-
-
-
-
-for tensor opfunction
-    if the other argument is a 
-
-
-
-instead i could have the dimension op method check if the other argument is a dimension
-    if it is, it constructs a tensor using the dimension as the dimension and the values as the data
-        tensor constructed MUST have the kwarg for fixed set to false (default is true) 
-    then, pass the two tensors as arguments to the public tensor method to combine
-
-
-NOT THIS WAY
-Tensor would have static public method to combine two tensors   
-    takes three arguments, first two are the input tensors, third is the operation to apply
-    constructs new tensor Tensor(combind dims, None, fixed = False)
-    new tensor has dimensions from both of the previous tensors
-    goes through each value in the new tensor and fills it with the result of performing operation on the two
-        if outside of  
-
-instead
-tensor has public method to expand to 
-
-
-when you do Tensor((x,y,z),x+y)
-    x+y --> constructs nonfixed tensor
-    the second argument of tensor can either be a number/None or a tensor
-        only a nonfixed tensor allowed?
-    default is to create a fixed tensor
-    constructs tensor size (x,y,z) and populates based on the nonfixed tensor x+y 
+more consistent/better naming
+    values instead of data
+    used dim and axes interchangably 
 

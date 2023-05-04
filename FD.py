@@ -4,19 +4,17 @@ import operator
 import math
 import numexpr
 import itertools
+import warnings
+import numbers
 
-
-# TODO option for kernels where output is in the middle of the input e.g fi+1/2=(fi+1-fi)/h   -->   would create new field one row larger (whole to half numbers, or squares to edges) or one row smaller (half to whole numbers, or edges to squares)
 # example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
-# TODO kind of sad cause it was a huge waste of time, but I should just construct the fields using numpy arrays instead, would be much simpler
 
 
 class Domain:
     # nonconstant property with current time? all operations then are only performed at that time (since the Field has access to Domain props)
     def __init__(self,axes,**kwargs):
         # dimensions is a dictionary with the dimension object and range
-        # TODO: split into space and time?
 
         def check_evenly_spaced_array(vals):
             try:
@@ -24,33 +22,40 @@ class Domain:
             except:
                 raise TypeError("must be iterable")
             
-            if not np.all([type(val)==float or type(val)==int for val in vals]):
+            if not np.all([isinstance(val,numbers.Number) for val in vals]):
                 raise TypeError("all values must be numbers")
 
             diffs = np.diff(vals)
-            if not np.all([diffs[0]==diff for diff in diffs]):
+            tolerance = 10**-9 # numpy linspace isn't perfectly spaced
+            if not np.all([abs(diffs[0]-diff)<tolerance for diff in diffs]):
                 raise ValueError("all values must be evenly spaced")
             
 
         keywords = list(kwargs.keys())
+        
 
-        if keywords==[]:
-            periodic = []
-        elif keywords==["periodic"]:
-            periodic = list(kwargs.values())[0]
-            assert type(periodic)==list, "periodic must be list of dimensions"
+        assert np.all([keyword in ["periodic","time"] for keyword in keywords]), "keyword must be periodic or time"
+
+
+
+        if "periodic" in keywords:
+            periodic = list(kwargs["periodic"])
             assert set(periodic).issubset(set(axes)), f"{periodic} not a dimension"
+
         else:
-            invalid_keywords = [keyword for keyword in keywords if keyword!="periodic"]
-            raise ValueError(f"invalid keyword arguments: {invalid_keywords}")
+            periodic = []
 
-
-
-
+        if "time" in keywords:
+            time_axis = kwargs["time"]
+            assert type(time_axis)==str, "time axis must be a string"
+            assert time_axis in axes, "time axis must be one of the axes"
+            assert time_axis not in periodic, "time axis cant be periodic"
+        else:
+            time_axis = None
 
         assert type(axes)==dict, "axes must be input dictionary of dimensions and range of values"
 
-
+    
 
         for i in range(len(axes)):
             axis_name = list(axes.keys())[i]
@@ -63,22 +68,29 @@ class Domain:
         self.axes = axes
         self.periodic = periodic
         self.time = 0 # this value steps each time
+        self.time_axis = time_axis
         
 
         # would also have information like periodicity
 
 
-    def step_time(self,time_axis):
-        # TODO: allow for different times of timestep (runge-kutta)
-        # for now just doing euler timestep
-        assert type(time_axis)==str, "time_axis must be name of axis"
-        assert time_axis in self.axes_names, "time_axis must be name of axis"
+    def increment_time(self):
+        assert self.time_axis!=None, "need time axis to increment time"
 
         self.time+=1
 
 
 
+    @property
+    def dt(self):
+        return dict(zip(self.axes_names,self.axes_step_size))[self.time_axis]
 
+
+    @property
+    def n_time_steps(self):
+        return dict(zip(self.axes_names,self.axes_lengths))[self.time_axis]
+    
+    
     @property
     def axes_lengths(self):
         return [len(list(axis_range)) for axis_range in self.axes.values()]
@@ -96,13 +108,12 @@ class Domain:
         # this assumes the axes are evenly spaced, which is checked in initialization
         return [axis_range[1]-axis_range[0] for axis_range in self.axes.values()]
 
- 
+
 
 
 class Kernel:
     # could construct it as a dictionary with numbers for keys --> allows for negative "indexing"
     def __init__(self,values,center_idx,dimension,domain):
-        # TODO: construct it based on derivative order and approx order instead
             # would then use the axes_step_size property to construct the kernel values
         assert type(values)==list, "values must be a list"
         assert type(center_idx)==int, "central index must be an integer"
@@ -175,13 +186,89 @@ class Unknown:
     def __rpow__(self,_):
         return Unknown()
 
+
     def __repr__(self):
-        return "?"    
+        return "?"
+
+
+
+
+class Fixed(float):
+    # this isn't really used if assignment done with an unknown and ANY number,it should raise an error
+    # Fixed is going to be used for boundary conditions and initial conditions
+    def __init__(self,value):
+        self.value = value
+
+    def __repr__(self):
+        return f"F({self.value})"
+
 
 
 class Field:
 
-    # TODO would probably want kernel to be constructed in diff instead of the user making it
+
+    def __set_data(self,data,location,allow_override):
+
+        # combines self's data at the location with the input data (merging unknown and known values)
+        # then sets self's data to merged data
+
+
+        self.__check_valid_idx(location)
+
+
+        existing_data = self.data[self.__idxs_tuple(location)] 
+
+        def test(a,b):
+            pass
+
+        def merge_values(v_new,v_existing):
+
+            new_known = not isinstance(v_new,Unknown)
+            exi_known = not isinstance(v_existing,Unknown)
+
+            if new_known and exi_known:
+                # when you apply boundary conditions, you may override initial condition data and vice versa
+                # nothing to do about that
+                if allow_override:
+                    warnings.warn("Overriding values",category=Warning)
+                    return v_new
+                else:
+                        raise Exception("attempting to override values")
+
+            elif new_known and not exi_known:
+                return v_new
+            elif not new_known and exi_known:
+                return v_existing
+            else:
+                return v_new # could also do v_existing or Unknown()
+            
+        
+        merge_values(Unknown(),3)
+
+        self.data[self.__idxs_tuple(location)]  = np.vectorize(merge_values,otypes=["object"])(data,existing_data)
+
+
+    def __check_valid_idx(self,idxs):
+        # checks if idx is in the form of a dictionary like {"a":1,"b":2} where they're all axis less than their lengths
+        
+        assert type(idxs)==dict, "indexing must be a dictionary"
+        
+        axes_names = list(idxs.keys())
+        axes_idxs = list(idxs.values())
+
+
+        axes_lengths = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
+
+        for axis in idxs:
+            assert type(axis)==str, f"{axis} is not a string"
+            assert axis in self.domain.axes_names, f"{axis} is not an axis in the domain"
+            assert idxs[axis]>=0, f"{axis} has negative index"
+            assert axes_lengths[axis]>idxs[axis], f"{axis} goes out of bounds, it has length {axes_lengths[axis]}"
+
+
+
+
+
     def diff(self,kernel):
         assert isinstance(kernel,Kernel),"input must be a kernel object"
 
@@ -246,6 +333,34 @@ class Field:
         new_field = Field(self.domain)
         new_field.data = new_data
         return new_field
+
+
+
+    def time_step(self,f_prime):
+
+
+        assert isinstance(f_prime,Field)
+
+        
+
+        dt = self.domain.dt 
+        time_axis = self.domain.time_axis
+
+        if time_axis==None:
+            raise Exception("cant time step since there's no time axis")
+
+        current_time = self.domain.time
+        new_time = current_time+1
+
+        f_prime_current = f_prime.get_data({time_axis:current_time})
+        f_current = self.get_data({time_axis:current_time})
+
+
+        # right now just assuming euler timestep
+        f_new = f_current + f_prime_current*dt
+
+
+        self.__set_data(f_new,{time_axis:new_time},allow_override=False)
 
 
 
@@ -448,15 +563,7 @@ class Field:
         return np.mod(np.floor(idx/placements),dim_lengths).astype(int)
 
  
-    @staticmethod
-    def __check_slice_loc(field_dims,slice_loc):
-        # checks if dict1>dict2 for all keys in dict2
-        # used for checking if slice goes out of field
-        for key in slice_loc.keys():
-            if field_dims[key]<=slice_loc[key]:
-                return False
-        return True
-    
+
 
     def __get_field_idx(self,idxs):
         # SHOULD ONLY BE CALLED PRIVATELY (should never be made public)
@@ -467,7 +574,8 @@ class Field:
         # idxs must be a dictionary with the keys being the dims and the value being the index
 
 
-        assert set(self.domain.axes_names)==set(idxs.keys()), "All dimensions of indexing must match dimensions of field"
+        self.__check_valid_idx(idxs)
+
 
         idxs_sorted = {key: idxs[key] for key in self.domain.axes_names}
         idx_values = list(idxs_sorted.values())
@@ -476,9 +584,6 @@ class Field:
         place_count = Field.__cum_placement(dims_length)
 
 
-
-        assert idx_values>=[0]*len(idx_values), "negative index"
-        assert dims_length>idx_values, "index out of range"
 
 
         def dot_product(list1,list2):
@@ -505,8 +610,10 @@ class Field:
 
 
 
-    def set(self,expression,location={}):
-        
+    def set_expression(self,expression,location={}):
+
+        self.__check_valid_idx(location)
+
 
         def transpose(nested_list):
             transposed_list = [[row[i] for row in nested_list] for i in range(len(nested_list[0]))]
@@ -515,30 +622,12 @@ class Field:
 
         axes_lengths_dict = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
         
-        assert Field.__check_slice_loc(axes_lengths_dict,location), "slice location not in bounds of field"
 
 
 
 
-        # TODO: do more granular check, first checking if all variables are allowed (might require sympy), this allows for these assertions
 
-        def dict_agree(dict1,dict2):
-            # check if all values in dict2 are inside and agree with dict1
-            for i in range(len(dict2)):
-                key = list(dict2.keys())[i]
-                val = list(dict2.values())[i]
 
-                if key not in list(dict1.keys()):
-                    return False
-                if dict1[key]!=val:
-                    return False
-            return True
-
-        field_dims = set(self.domain.axes_names)
-        loc_dims = set(location.keys())
-        # assert field_dims-slice_dims==loc_dims , "dimnsions of location must be dimensions in field but not in slice"
-        # assert len(slice_dims-field_dims)==0   , "dimensions in slice not in field"
-        # dict_agree(self.dims,slice.dims), "dimension disagreement with slice"
 
 
         # evaluate the expression for all combinations of dimension values
@@ -581,94 +670,26 @@ class Field:
         # if the expression is just a constant, numexpr just returns a single value instead of an array
         if data_flat.shape==():
             n_subs = len(value_combs[0])
-            data = np.full((n_subs,1),float(data_flat))
-        else:
+            data_flat = np.full((n_subs,1),float(data_flat))
+        
+        data = np.reshape(data_flat,substitute_axes_lengths)
 
-            data = np.reshape(data_flat,self.domain.axes_lengths)
-
-        self.data[self.__idxs_tuple(location)] = data
-
-        # need to take location into account
-        # iterate through all indexes of slice
-        """
-                for i in range(len(data)):
-            # using get_dim_idxs only works because the way itertools flattens the data is the same way i flatten the field data
-            dim_idxs_num = Field.__get_dim_idxs(substitute_axes_lengths,i)
-            dim_idxs = dict(zip(substitute_axes_names,dim_idxs_num))
-
-            val = data[i]
-
-            field_idxs = {**dim_idxs,**location}
+        self.__set_data(data,location,allow_override=True)
 
 
-            idx = self.__get_field_idx(field_idxs)
-            self.data[idx] = val
 
-        """
-
-
-    # TODO: function that adds boundary conditions
-        # on each time step, you first assign field to something, then apply boundary conditions
-        # a bit weird, but easy
-
-    # TODO: right now loc is the indexes, might want to have it the location instead
     def get_data(self,loc={}):
         
-        
-        assert type(loc)==dict, "must input dictionary"
-        # TODO: write private nonstatic method that checks if it's a dictionary with all keys in dimension and numeric values, as this is done in multiple places
 
+        self.__check_valid_idx(loc)
+        
         field_dims = set(self.domain.axes_names)
         loc_dims = set(loc.keys())
         dims = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
         data = self.data
         assert loc_dims.issubset(field_dims), "all indexed dimension must be field dimensions" 
-        assert Field.__check_slice_loc(dims,loc), "location out of range of field"
 
         return data[self.__idxs_tuple(loc)]
-
-
-    """
-     def cut_dict(dict2,cut_keys):
-            # construct a dict with cut_keys removed
-            new_dict = {}
-            for i in range(len(dict2)):
-                key = list(dict2.keys())[i]
-                val = list(dict2.values())[i]
-
-                if key not in cut_keys:
-                    new_dict[key] = val
-
-            return new_dict
-
-
-        slice_dims = cut_dict(dims,list(loc.keys()))
-
-
-
-        array = np.zeros(tuple(slice_dims.values()))
-
-
-       
-                for field_idx in range(len(data)):
-
-            
-            dim_idxs_vals = Field.__get_dim_idxs(self.domain.axes_lengths,field_idx)
-            dim_idxs = dict(zip(self.domain.axes_names,dim_idxs_vals))
-            data_in_loc = np.all([dim_idxs[k]==loc[k] for k in loc])
-
-            if not data_in_loc:
-                continue
-
-            slice_dim_idxs = tuple(dim_idxs[k] for k in slice_dims)
-
-            
-            array[slice_dim_idxs] = data[field_idx]
-   
-
-        return array
-     """
-
 
 
 
@@ -699,6 +720,7 @@ class Field:
 
         if op2==None:
             # case for single argument, i think just negation
+            # TODO update this
             new_field = Field(op1.dims,None)
             new_field.data = [op(val) for val in op1.data]
 
@@ -734,13 +756,13 @@ class Field:
     
 
     def __radd__(self,other):
-        return Field.__field_op(other,self,operator.add)
+        return Field.__field_op(self,other,operator.add)
     
     def __rsub__(self,other):
-        return Field.__field_op(other,self,operator.sub)
+        return Field.__field_op(self,other,operator.sub)
     
     def __rmul__(self,other):
-        return Field.__field_op(other,self,operator.mul)
+        return Field.__field_op(self,other,operator.mul)
     
     def __rtruediv__(self,other):
         raise Exception("cannot divide by field")
