@@ -1,12 +1,9 @@
 import numpy as np
-from tabulate import tabulate
 import operator
-import math
 import numexpr
 import itertools
 import warnings
 import numbers
-from scipy import signal
 
 # example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
@@ -21,15 +18,15 @@ class Domain:
             try:
                 iter(vals)
             except:
-                raise TypeError("must be iterable")
+                raise TypeError("axes must be iterable")
             
             if not np.all([isinstance(val,numbers.Number) for val in vals]):
-                raise TypeError("all values must be numbers")
+                raise TypeError("all values of axes must be numbers")
 
             diffs = np.diff(vals)
             tolerance = 10**-9 # numpy linspace isn't perfectly spaced
             if not np.all([abs(diffs[0]-diff)<tolerance for diff in diffs]):
-                raise ValueError("all values must be evenly spaced")
+                raise ValueError("all values of axes must be evenly spaced")
             
 
         keywords = list(kwargs.keys())
@@ -77,18 +74,17 @@ class Domain:
 
     def increment_time(self):
         assert self.time_axis!=None, "need time axis to increment time"
-
         self.time+=1
-
-
 
     @property
     def dt(self):
+        assert self.time_axis!=None, "no time axis"
         return dict(zip(self.axes_names,self.axes_step_size))[self.time_axis]
 
 
     @property
     def n_time_steps(self):
+        assert self.time_axis!=None, "no time axis"
         return dict(zip(self.axes_names,self.axes_lengths))[self.time_axis]
     
     
@@ -114,11 +110,12 @@ class Domain:
 
 class Kernel:
     # could construct it as a dictionary with numbers for keys --> allows for negative "indexing"
-    def __init__(self,values,center_idx,axis,domain):
+    def __init__(self,values,center_idx,der_order,axis,domain):
             # would then use the axes_step_size property to construct the kernel values
         assert type(values)==list, "values must be a list"
         assert type(center_idx)==int, "central index must be an integer"
-        assert axis in domain.axes_names, "dimension must be in the domain"
+        assert type(der_order)==int and der_order>0, "order of the derivative must be a positive integer"
+        assert axis in domain.axes_names, "axis must be in the domain"
         assert len(values)>center_idx, "center_idx must be an index within the kernel size"
         
         kernel = dict()
@@ -128,6 +125,7 @@ class Kernel:
             kernel[shifted_idx] = value
         self.values = kernel
         self.axis = axis
+        self.der_order = der_order # used for determining what power to raise dx to
 
   
 class Unknown:
@@ -137,7 +135,185 @@ class Unknown:
     def __repr__(self):
         return "?"
 
+    def __neg__(self):
+        return Unknown()
+    
+    def __add__(self,other):
+        return Unknown()
+    
+    def __sub__(self,other):
+        return Unknown()
+    
+    def __mul__(self,other):
+        return Unknown()
+
+    def __truediv__(self,other):
+        return Unknown()
+   
+    def __pow__(self,other):
+        return Unknown()
+    
+    def __radd__(self,other):
+        return Unknown()
+    
+    def __rsub__(self,other):
+        return Unknown()
+    
+    def __rmul__(self,other):
+        return Unknown()
+    
+    def __rtruediv__(self,other):
+        raise Unknown()
+    
+    def __rpow__(self,other):
+        raise Unknown()
+
 class Field:
+
+    def __init__(self,domain):
+        assert isinstance(domain,Domain), "domain must be a Domain object"
+        self.domain = domain
+        self.data = np.full(self.domain.axes_lengths,Unknown(),dtype="object")
+
+
+    def set_expression(self,expression,location={}):
+        
+        # sets the data to the value of the expression at the specified location
+        # used for boundary conditions and initial conditions
+
+        self.__check_valid_idx(location)
+        assert type(expression)==str, "expression must be a string"
+
+
+        def transpose(nested_list):
+            transposed_list = [[row[i] for row in nested_list] for i in range(len(nested_list[0]))]
+            return transposed_list
+
+        substitute_axes_names = []
+        substitute_axes_values = []
+        substitute_axes_lengths = []
+
+        for i in range(len(self.domain.axes_names)):
+            axis_name = self.domain.axes_names[i]
+            axis_values = self.domain.axes_values[i]
+            axis_lengths = self.domain.axes_lengths[i]
+
+            if axis_name not in location.keys():
+                substitute_axes_names.append(axis_name)
+                substitute_axes_values.append(axis_values)
+                substitute_axes_lengths.append(axis_lengths)
+
+        # constructs nested list of all combinations of values
+        value_combs = transpose([list(comb) for comb in itertools.product(*substitute_axes_values)])
+        subs = dict(zip(substitute_axes_names,value_combs))
+
+        # TODO: use more granular check, first checking if all the variables in the expression are axes, may require sympy
+        try:
+            data_flat = numexpr.evaluate(expression,subs)
+        except:
+            raise Exception("either variable mismatch or cannot parse expression")
+
+
+        # if the expression is just a constant, numexpr just returns a single value instead of an array
+        if data_flat.shape==():
+            n_subs = len(value_combs[0])
+            data_flat = np.full((n_subs,1),float(data_flat))
+        
+        data = np.reshape(data_flat,substitute_axes_lengths)
+
+        self.__set_data(data,location,allow_override=True) # allow override allows you to (for example) override boundary conditions with initial conditions or vice versa
+
+    def update_der(self,f,kernel):
+        # updates self by taking the derivative of f using the kernel
+        # only performs the calculations at the current time
+
+        assert isinstance(f,Field), "f must be a Field object"
+        assert isinstance(kernel,Kernel), "kernel must be a Kernel object"
+        assert self.domain==f.domain, "derivative and function must have the same domain"
+
+
+        current_time = {self.domain.time_axis:self.domain.time}
+
+        non_time_axes = self.domain.axes_names
+        non_time_axes.remove(self.domain.time_axis)
+
+        axis_n = non_time_axes.index(kernel.axis)
+
+        n_axes = len(non_time_axes)
+
+
+        axes_lengths = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
+        kernel_axis_len = axes_lengths[kernel.axis]
+
+        shifts = list(kernel.values.keys())
+        weights = list(kernel.values.values())
+
+
+        current_data = f.data[f.__idxs_tuple(current_time)]
+
+        diff = np.zeros(current_data.shape,dtype="object")
+
+        for i in range(len(kernel.values)):
+            diff+=weights[i]*np.roll(current_data,shifts[i],axis=axis_n)
+
+        step_sizes = dict(zip(self.domain.axes_names,self.domain.axes_step_size))
+        dx = step_sizes[kernel.axis]
+
+    
+
+        diff/=dx**kernel.der_order
+
+
+        left_cut = -shifts[0]
+        right_cut = shifts[-1]
+
+
+        start_idxs = [slice(None)]*n_axes
+        start_idxs[axis_n] = slice(0,left_cut)
+
+        end_idxs = [slice(None)]*n_axes
+        end_idxs[axis_n] = slice(kernel_axis_len-right_cut,kernel_axis_len)
+
+        periodic = kernel.axis in self.domain.periodic
+
+        if not periodic:            
+            diff[tuple(start_idxs)] = Unknown()
+            diff[tuple(end_idxs)] = Unknown()
+
+        self.__set_data(diff,current_time,allow_override=False)
+        
+    def update_time_step(self,f_prime):
+
+        # updates self using f_prime
+        # for now assuming euler timestep: f = f+fprime*dt
+
+        assert isinstance(f_prime,Field), "f_prime must be a field"
+
+        
+        time_axis = self.domain.time_axis
+        if time_axis==None:
+            raise Exception("cant time step since there's no time axis")
+        dt = self.domain.dt 
+
+        current_time = self.domain.time
+        new_time = current_time+1
+
+        f_prime_current = f_prime.get_data({time_axis:current_time})
+        f_current = self.get_data({time_axis:current_time})
+
+        f_new = f_current + f_prime_current*dt
+
+        self.__set_data(f_new,{time_axis:new_time},allow_override=False)
+
+    def get_data(self,location={}):
+        
+
+        self.__check_valid_idx(location)
+        
+        data = self.data
+
+        return data[self.__idxs_tuple(location)]
+
 
     @property
     def current(self):
@@ -198,114 +374,10 @@ class Field:
 
 
 
-    def set_der(self,f,kernel):
-        # updates self by taking the derivative of f using the kernel
-        # only performs the calculations at the current time
-
-        assert isinstance(f,Field)
-        assert isinstance(kernel,Kernel)
-
-
-        current_time = {self.domain.time_axis:self.domain.time}
-
-        non_time_axes = self.domain.axes_names
-        non_time_axes.remove(self.domain.time_axis)
-
-        axis_n = non_time_axes.index(kernel.axis)
-
-        n_axes = len(non_time_axes)
-
-
-        axes_lengths = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
-        kernel_axis_len = axes_lengths[kernel.axis]
-
-        shifts = list(kernel.values.keys())
-        weights = list(kernel.values.values())
-
-
-        current_data = f.data[f.__idxs_tuple(current_time)]
-
-        diff = np.zeros(current_data.shape,dtype="object")
-
-        for i in range(len(kernel.values)):
-            diff+=weights[i]*np.roll(current_data,shifts[i],axis=axis_n)
-
-        left_cut = -shifts[0]
-        right_cut = shifts[-1]
-
-
-        start_idxs = [slice(None)]*n_axes
-        start_idxs[axis_n] = slice(0,left_cut)
-
-        end_idxs = [slice(None)]*n_axes
-        end_idxs[axis_n] = slice(kernel_axis_len-right_cut,kernel_axis_len)
-
-        periodic = kernel.axis in self.domain.periodic
-        # instead of cutting it replace the extra ones with Unknowns
-        if not periodic:
-            
-            diff[tuple(start_idxs)] = Unknown()
-            diff[tuple(end_idxs)] = Unknown()
 
 
 
-
-
-
-        self.__set_data(diff,current_time,allow_override=False)
-        
-        
-        
-
-
-        return
-
-
-
-    def time_step(self,f_prime):
-
-
-        assert isinstance(f_prime,Field)
-
-        
-
-        dt = self.domain.dt 
-        time_axis = self.domain.time_axis
-
-        if time_axis==None:
-            raise Exception("cant time step since there's no time axis")
-
-        current_time = self.domain.time
-        new_time = current_time+1
-
-        f_prime_current = f_prime.get_data({time_axis:current_time})
-        f_current = self.get_data({time_axis:current_time})
-
-
-        # right now just assuming euler timestep
-        f_new = f_current + f_prime_current*dt
-
-
-        self.__set_data(f_new,{time_axis:new_time},allow_override=False)
-
-
-
-
-    def __init__(self,domain):
-        
-        assert isinstance(domain,Domain), "domain must be a Domain object"
-
-        self.domain = domain
-
-        self.data = np.full(self.domain.axes_lengths,Unknown(),dtype="object")
-        #axes_lengths = [len(value) for value in domain.axes.values()]
-        #self.data = [None for _ in range(data_length)]
-
-
-
-        #self.data = np.full((data_length,1),)  # converting the data to a numpy array for rapid elementwise arithmetic
-
-
+  
     def __idxs_tuple(self,idxs):
         # TODO might make more sense to make this method of domain instead
         idxs_filled = dict()
@@ -320,68 +392,9 @@ class Field:
 
 
 
-    def set_expression(self,expression,location={}):
-
-        self.__check_valid_idx(location)
+ 
 
 
-        def transpose(nested_list):
-            transposed_list = [[row[i] for row in nested_list] for i in range(len(nested_list[0]))]
-            return transposed_list
-
-        # evaluate the expression for all combinations of dimension values
-
-        # only evaluate the expression over dimensions not in location:
-
-        domain_axes_names = self.domain.axes_names
-        domain_axes_values = self.domain.axes_values
-        domain_axes_lengths = self.domain.axes_lengths
-
-        substitute_axes_names = []
-        substitute_axes_values = []
-        substitute_axes_lengths = []
-
-
-
-        for i in range(len(domain_axes_names)):
-            axis_name = domain_axes_names[i]
-            axis_values = domain_axes_values[i]
-            axis_lengths = domain_axes_lengths[i]
-
-            if axis_name not in location.keys():
-                substitute_axes_names.append(axis_name)
-                substitute_axes_values.append(axis_values)
-                substitute_axes_lengths.append(axis_lengths)
-
-        # constructs nested list of all combinations of values
-        value_combs = transpose([list(comb) for comb in itertools.product(*substitute_axes_values)])
-        subs = dict(zip(substitute_axes_names,value_combs))
-
-        try:
-            data_flat = numexpr.evaluate(expression,subs)
-        except:
-            raise Exception("either variable mismatch or cannot parse expression")
-
-
-        # if the expression is just a constant, numexpr just returns a single value instead of an array
-        if data_flat.shape==():
-            n_subs = len(value_combs[0])
-            data_flat = np.full((n_subs,1),float(data_flat))
-        
-        data = np.reshape(data_flat,substitute_axes_lengths)
-
-        self.__set_data(data,location,allow_override=True)
-
-
-
-    def get_data(self,location={}):
-        
-
-        self.__check_valid_idx(location)
-        
-        data = self.data
-
-        return data[self.__idxs_tuple(location)]
 
 
 

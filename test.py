@@ -2,28 +2,48 @@ from FD import *
 import numpy as np
 import matplotlib.pyplot as plt
 
-n_x = 100 # TODO obviously you have to be allowed to say you want the end to be fixed, temporary solution
 
+x_range = np.linspace(-5,5,100)
 
 d = Domain({
-    "x":np.linspace(0,1,n_x)
-    ,"t":range(0,50)}
+    "x":x_range,
+    "y":x_range
+    ,"t":range(0,100)}
     ,time="t"
-    ,periodic=[])
+    ,periodic=["x","y"])
+
+
+dt = d.dt
+dx = dict(zip(d.axes_names,d.axes_step_size))["x"]
+
+
+CFL = 0.2
+
+k_coeff = CFL*dx**2/dt
+
+
+print(CFL)
      
 f = Field(d)
-f.set_expression("1",location={"t":0})
+f.set_expression("exp(-x**2-y**2)",location={"t":0})
+# f.set_expression("0",location={"x":0})
+#f.set_expression("0",location={"x":-1})
+#f.set_expression("0",location={"y":0})
+#f.set_expression("0",location={"y":-1})
+
 
 fxx = Field(d)
-f.set_expression("0",location={"x":0})
-f.set_expression("0",location={"x":-1})
+fyy = Field(d)
 
+kx = Kernel([1,-2,1],center_idx=1,der_order=2,axis="x",domain=d)
+ky = Kernel([1,-2,1],center_idx=1,der_order=2,axis="y",domain=d)
 
-k = Kernel([1,-2,1],center_idx=1,axis="x",domain=d)
 
 for i in range(d.n_time_steps-1):
-    fxx.set_der(f,kernel=k)
-    ft = 0.2*fxx
+
+    fxx.set_der(f,kernel=kx)
+    fyy.set_der(f,kernel=ky)
+    ft = k_coeff*(fxx+fyy)
 
     f.time_step(ft)
 
