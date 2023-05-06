@@ -2,25 +2,27 @@ from FD import *
 import numpy as np
 import matplotlib.pyplot as plt
 
-n_x = 30 # TODO obviously you have to be allowed to say you want the end to be fixed, temporary solution
+n_x = 100 # TODO obviously you have to be allowed to say you want the end to be fixed, temporary solution
 
 
 d = Domain({
     "x":np.linspace(0,1,n_x)
-    ,"t":range(0,10)}
+    ,"t":range(0,50)}
     ,time="t"
-    ,periodic=["x"])
+    ,periodic=[])
      
 f = Field(d)
-f.set_expression("x**2",location={"t":0})
-#f.set_expression("0",location={"x":0})
-#f.set_expression("0",location={"x":n_x-1})
+f.set_expression("1",location={"t":0})
+
+fxx = Field(d)
+f.set_expression("0",location={"x":0})
+f.set_expression("0",location={"x":-1})
 
 
-k = Kernel([1,-2,1],center_idx=1,dimension="x",domain=d)
+k = Kernel([1,-2,1],center_idx=1,axis="x",domain=d)
 
 for i in range(d.n_time_steps-1):
-    fxx = f.diff(kernel=k)
+    fxx.set_der(f,kernel=k)
     ft = 0.2*fxx
 
     f.time_step(ft)

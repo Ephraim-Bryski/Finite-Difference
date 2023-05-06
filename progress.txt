@@ -9,6 +9,9 @@ replace matrix multiplication with convolution, makes it much simpler, Unknown t
 fields which are edges of other fields (e.g. temperature flux is on the edges of temperature cells)
     would allow for boundary conditions on these derivative fields
 
+second derivatives of time may require something similar, first derivatives on the edges at half time first?
+    could also have the timestep method take the derivative order as an argument?
+    
 
 need to figure out how to make defining kernels straightforward, possibilities:
 
