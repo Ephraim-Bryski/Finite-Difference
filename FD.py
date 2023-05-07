@@ -13,7 +13,7 @@ import line_profiler
 
 class Domain:
     # nonconstant property with current time? all operations then are only performed at that time (since the Field has access to Domain props)
-    def __init__(self,axes,periodic=[],time_axis=None,check_bc=True):
+    def __init__(self,axes,periodic=[],time_axis=None):
         # dimensions is a dictionary with the dimension object and range
 
         def check_evenly_spaced_array(vals):
@@ -39,11 +39,6 @@ class Domain:
 
         assert type(axes)==dict, "axes must be input dictionary of dimensions and range of values"
 
-        # if check_c is True, it doesn't allow you to override boundary conditions, throws error
-        # if check_bc is False, doesn't throw error, but is much faster
-        # probably want to initially test with check_bc on, then turn check_bc off for performance
-        assert type(check_bc)==bool, "strict must be a boolean"
-
         for i in range(len(axes)):
             axis_name = list(axes.keys())[i]
             axis_values = list(axes.values())[i]
@@ -56,7 +51,6 @@ class Domain:
         self.periodic = periodic
         self.time = 0 # this value steps each time
         self.time_axis = time_axis
-        self.check_bc = check_bc
         
 
         # would also have information like periodicity
@@ -194,12 +188,7 @@ class Field:
         self.domain = domain
 
 
-        # computations on object arrays are about 30 times slower, even with the same data
-        # Unknown and nan behaves the same, nan just prevents you from checking if data is overriding
-        if domain.check_bc:
-            self.data = np.full(self.domain.axes_lengths,Unknown(),dtype="object")
-        else:
-            self.data = np.full(self.domain.axes_lengths,np.nan)
+        self.data = np.full(self.domain.axes_lengths,np.nan)
 
     def set_expression(self,expression,location={}):
         
@@ -281,10 +270,8 @@ class Field:
         current_data = f.data[f.__idxs_tuple(current_time)]
 
 
-        if self.domain.check_bc:
-            diff = np.zeros(current_data.shape,dtype="object")
-        else:
-            diff = np.zeros(current_data.shape)
+        
+        diff = np.zeros(current_data.shape)
 
         for i in range(len(kernel.values)):
             diff+=weights[i]*np.roll(current_data,shifts[i],axis=axis_n)
@@ -310,31 +297,15 @@ class Field:
         periodic = kernel.axis in self.domain.periodic
 
         if not periodic:            
-            if self.domain.check_bc:
-                pad = Unknown()
-            else:
-                pad = np.nan
+            
 
-            diff[tuple(start_idxs)] = pad
-            diff[tuple(end_idxs)] = pad
+            diff[tuple(start_idxs)] = np.nan
+            diff[tuple(end_idxs)] = np.nan
 
         self.set_data(diff,current_time,allow_override=False)
 
 
 
-
-    @staticmethod
-    def __convert_plot_data(data):
-        # replace Unknowns with NaN so it can show it
-        def replace_unknowns(val):
-            if isinstance(val,Unknown):
-                return np.nan
-            else:
-                return val
-            
-        data = np.vectorize(replace_unknowns)(data)
-            
-        return data.astype(float)
 
     def imshow(self,location={}):
 
@@ -344,8 +315,6 @@ class Field:
 
         im_data = self.get_data(location)
 
-        if self.domain.check_bc:
-            im_data = Field.__convert_plot_data(im_data)
 
 
         location_axes = list(location.keys())
@@ -382,8 +351,6 @@ class Field:
 
         plot_data = self.get_data(location)
 
-        if self.domain.check_bc:
-            plot_data = Field.__convert_plot_data(plot_data)
 
         location_axes = list(location.keys())
 
@@ -440,35 +407,21 @@ class Field:
         # faster since this is done in parallel while those checks (even with vectorize) wouldn't
 
 
-    
-        if self.domain.check_bc:
-
-            def find_unknowns(array):
-                # any number times 0 would be 0, so any number --> False
-                # an unknown times 0 returns itself, so Unknown --> True
-                # this check is done in parallel over entire, so much faster
-                return array*0!=0
-            
-
-            unknown_mask = find_unknowns(data)
-            known_mask = np.invert(unknown_mask)
 
 
-            existing_unknowns = find_unknowns(existing_data[known_mask])
-            overriding = not np.all(existing_unknowns)
-
-            if allow_override and overriding:
-                # override allowed when bc overrides initial conditions or vice versa (initial setup)
-                warnings.warn("Overriding values",category=Warning)
-            elif not allow_override and overriding:
-                raise Exception("attempting to override values")
+        unknown_mask = np.isnan(data)
+        known_mask = np.invert(unknown_mask)
 
 
-        else:
+        existing_unknowns = np.isnan(existing_data[known_mask])
+        overriding = not np.all(existing_unknowns)
 
-            unknown_mask = np.ma.masked_invalid(data).mask
+        if allow_override and overriding:
+            # override allowed when bc overrides initial conditions or vice versa (initial setup)
+            warnings.warn("Overriding values",category=Warning)
+        elif not allow_override and overriding:
+            raise Exception("attempting to override values")
 
-            #unknown_mask = data==np.nan
 
 
         data[unknown_mask] = existing_data[unknown_mask]
