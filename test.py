@@ -14,8 +14,7 @@ d = Domain({
     "y":range(0,3),
     "t":range(0,500)}
     ,time_axis="t"
-    ,periodic=["y"]
-    ,check_bc=False)
+    ,periodic=["y","x"])
 
 
 dt = d.dt
