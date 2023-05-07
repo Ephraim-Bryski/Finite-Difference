@@ -1,9 +1,11 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import operator
 import numexpr
 import itertools
 import warnings
 import numbers
+import line_profiler
 
 # example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
@@ -11,7 +13,7 @@ import numbers
 
 class Domain:
     # nonconstant property with current time? all operations then are only performed at that time (since the Field has access to Domain props)
-    def __init__(self,axes,**kwargs):
+    def __init__(self,axes,periodic=[],time_axis=None,check_bc=True):
         # dimensions is a dictionary with the dimension object and range
 
         def check_evenly_spaced_array(vals):
@@ -28,32 +30,19 @@ class Domain:
             if not np.all([abs(diffs[0]-diff)<tolerance for diff in diffs]):
                 raise ValueError("all values of axes must be evenly spaced")
             
+        assert set(periodic).issubset(set(axes)), f"{periodic} not a dimension"
 
-        keywords = list(kwargs.keys())
-        
-
-        assert np.all([keyword in ["periodic","time"] for keyword in keywords]), "keyword must be periodic or time"
-
-
-
-        if "periodic" in keywords:
-            periodic = list(kwargs["periodic"])
-            assert set(periodic).issubset(set(axes)), f"{periodic} not a dimension"
-
-        else:
-            periodic = []
-
-        if "time" in keywords:
-            time_axis = kwargs["time"]
+        if time_axis!=None:
             assert type(time_axis)==str, "time axis must be a string"
             assert time_axis in axes, "time axis must be one of the axes"
             assert time_axis not in periodic, "time axis cant be periodic"
-        else:
-            time_axis = None
 
         assert type(axes)==dict, "axes must be input dictionary of dimensions and range of values"
 
-    
+        # if check_c is True, it doesn't allow you to override boundary conditions, throws error
+        # if check_bc is False, doesn't throw error, but is much faster
+        # probably want to initially test with check_bc on, then turn check_bc off for performance
+        assert type(check_bc)==bool, "strict must be a boolean"
 
         for i in range(len(axes)):
             axis_name = list(axes.keys())[i]
@@ -67,6 +56,7 @@ class Domain:
         self.periodic = periodic
         self.time = 0 # this value steps each time
         self.time_axis = time_axis
+        self.check_bc = check_bc
         
 
         # would also have information like periodicity
@@ -136,37 +126,37 @@ class Unknown:
         return "?"
 
     def __neg__(self):
-        return Unknown()
+        return self
+        
+    def __add__(self,_):
+        return self
     
-    def __add__(self,other):
-        return Unknown()
-    
-    def __sub__(self,other):
-        return Unknown()
-    
-    def __mul__(self,other):
-        return Unknown()
+    def __sub__(self,_):
+        return self
+        
+    def __mul__(self,_):
+        return self
 
-    def __truediv__(self,other):
-        return Unknown()
+    def __truediv__(self,_):
+        return self
    
-    def __pow__(self,other):
-        return Unknown()
+    def __pow__(self,_):
+        return self
     
-    def __radd__(self,other):
-        return Unknown()
+    def __radd__(self,_):
+        return self
     
-    def __rsub__(self,other):
-        return Unknown()
+    def __rsub__(self,_):
+        return self
     
-    def __rmul__(self,other):
-        return Unknown()
+    def __rmul__(self,_):
+        return self
     
-    def __rtruediv__(self,other):
-        raise Unknown()
+    def __rtruediv__(self,_):
+        raise self
     
-    def __rpow__(self,other):
-        raise Unknown()
+    def __rpow__(self,_):
+        raise self
 
 class Field:
 
@@ -222,6 +212,10 @@ class Field:
         data = np.reshape(data_flat,substitute_axes_lengths)
 
         self.__set_data(data,location,allow_override=True) # allow override allows you to (for example) override boundary conditions with initial conditions or vice versa
+
+    def update_values(self,values):
+        time_axis = self.domain.time_axis
+        self.data[self.__idxs_tuple({time_axis:-1})] = values
 
     def update_der(self,f,kernel):
         # updates self by taking the derivative of f using the kernel
@@ -305,22 +299,104 @@ class Field:
 
         self.__set_data(f_new,{time_axis:new_time},allow_override=False)
 
-    def get_data(self,location={}):
-        
+    @staticmethod
+    def __convert_plot_data(data):
+        # replace Unknowns with NaN so it can show it
+        def replace_unknowns(val):
+            if isinstance(val,Unknown):
+                return np.nan
+            else:
+                return val
+            
+        data = np.vectorize(replace_unknowns)(data)
+            
+        return data.astype(float)
+
+    def imshow(self,location={}):
+
+
 
         self.__check_valid_idx(location)
-        
-        data = self.data
 
+        im_data = self.get_data(location)
+
+        im_data = Field.__convert_plot_data(im_data)
+
+
+        location_axes = list(location.keys())
+
+        im_axes = [axis for axis in self.domain.axes_names if axis not in location_axes]
+
+        if len(im_axes)==0:
+            raise Exception("no remaining data once location is specified")
+        elif len(im_axes)==1:
+            raise Exception("only 2-dimensional data allowed, use plot for 1-dimensional")
+        elif len(im_axes)>2:
+            raise Exception("cannot suppport more than 2-dimensional data for imshow")
+        
+        x_axis = im_axes[0]
+        y_axis = im_axes[1]
+
+        axes_values = dict(zip(self.domain.axes_names,self.domain.axes_values))
+
+        def get_bounds(axis):
+            axis_values = axes_values[axis]
+            return [min(axis_values),max(axis_values)]
+        
+        bounds = map(get_bounds,im_axes)
+
+        bounds_flat = [val for bound in bounds for val in bound]
+
+        plt.imshow(im_data,extent=bounds_flat)
+        plt.xlabel(x_axis)
+        plt.ylabel(y_axis)
+    
+    def plot(self,location={}):
+
+        self.__check_valid_idx(location)
+
+        plot_data = self.get_data(location)
+
+        plot_data = Field.__convert_plot_data(plot_data)
+
+        location_axes = list(location.keys())
+
+        plot_axes = [axis for axis in self.domain.axes_names if axis not in location_axes]
+
+        assert len(plot_axes)==1, "only 1-dimensional data allowed for plot"
+
+
+        axes_values = dict(zip(self.domain.axes_names,self.domain.axes_values))
+
+        x_axis = plot_axes[0]
+
+
+        x_values = axes_values[x_axis]
+
+
+
+
+        plt.plot(x_values,plot_data)
+        plt.xlabel(x_axis)
+
+
+    def get_data(self,location={}):
+        
+        # returns an n-dimensional numpy array of the data at the given location 
+
+        # check valid idx is overkill here since I always check it prior to passing it through but OK
+        self.__check_valid_idx(location)
+        data = self.data
         return data[self.__idxs_tuple(location)]
 
-
     @property
-    def current(self):
+    def now(self):
+        
+        # returns an n-dimensional numpy array of all the data at the current time
+
         current_time = self.domain.time
         time_axis = self.domain.time_axis
-
-        return self.get_data({current_time:time_axis})
+        return self.get_data({time_axis:current_time})
 
     def __set_data(self,data,location,allow_override):
 
@@ -329,40 +405,47 @@ class Field:
 
 
         self.__check_valid_idx(location)
-
-
+        
         existing_data = self.data[self.__idxs_tuple(location)] 
 
 
-        def merge_values(v_new,v_existing):
 
-            new_known = not isinstance(v_new,Unknown)
-            exi_known = not isinstance(v_existing,Unknown)
+        # this approach is a much faster alternative to checking whether each value is an Unknown object
+        # faster since this is done in parallel while those checks (even with vectorize) wouldn't
 
-            if new_known and exi_known:
-                # when you apply boundary conditions, you may override initial condition data and vice versa
-                # nothing to do about that
-                if allow_override:
-                    warnings.warn("Overriding values",category=Warning)
-                    return v_new
-                else:
-                        raise Exception("attempting to override values")
 
-            elif new_known and not exi_known:
-                return v_new
-            elif not new_known and exi_known:
-                return v_existing
-            else:
-                return v_new # could also do v_existing or Unknown()
+    
+        if self.domain.check_bc:
+
+            def find_unknowns(array):
+                # any number times 0 would be 0, so any number --> False
+                # an unknown times 0 returns itself, so Unknown --> True
+                # this check is done in parallel over entire, so much faster
+                return array*0!=0
             
-        self.data[self.__idxs_tuple(location)]  = np.vectorize(merge_values,otypes=["object"])(data,existing_data)
 
+            unknown_mask = find_unknowns(data)
+            known_mask = np.invert(unknown_mask)
+
+
+            existing_unknowns = find_unknowns(existing_data[known_mask])
+            overriding = not np.all(existing_unknowns)
+
+            if allow_override and overriding:
+                warnings.warn("Overriding values",category=Warning)
+            elif not allow_override and overriding:
+                raise Exception("attempting to override values")
+
+            data[unknown_mask] = existing_data[unknown_mask]
+
+
+        self.data[self.__idxs_tuple(location)]  = data
 
     def __check_valid_idx(self,idxs):
+
         # checks if idx is in the form of a dictionary like {"a":1,"b":2} where they're all axis less than their lengths
         
         assert type(idxs)==dict, "indexing must be a dictionary"
-
 
         axes_lengths = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
 
@@ -371,14 +454,11 @@ class Field:
             assert axis in self.domain.axes_names, f"{axis} is not an axis in the domain"
             assert axes_lengths[axis]>idxs[axis], f"{axis} goes out of bounds, it has length {axes_lengths[axis]}"
 
-
-
-
-
-
-
-  
     def __idxs_tuple(self,idxs):
+
+        # converts a dictionary of idxs to a tuple of indices which can be used to index the numpy array
+        # {a:1,b:2} --> (1,2,:)            if axes are a,b,c
+
         # TODO might make more sense to make this method of domain instead
         idxs_filled = dict()
         for axis in self.domain.axes:
@@ -387,25 +467,11 @@ class Field:
             else:
                 idxs_filled[axis] = idxs[axis]
 
-
         return tuple(idxs_filled[axis] for axis in self.domain.axes)
-
-
-
- 
-
-
-
-
-
-
-
 
     def __str__(self) -> str:
         return f"{len(self.domain.axes_names)}-dimensional Field, dimension lengths: {dict(zip(self.domain.axes_names,self.domain.axes_lengths))}"
        
-
-
     def __field_op(op1,op2,op):
 
         def get_operand_data(op):
@@ -459,7 +525,6 @@ class Field:
         assert not isinstance(other,Field), "cannot raise to field"
         return Field.__field_op(self,other,operator.pow)
     
-
     def __radd__(self,other):
         return Field.__field_op(self,other,operator.add)
     
