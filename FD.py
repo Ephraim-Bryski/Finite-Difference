@@ -61,10 +61,36 @@ class Domain:
 
         # would also have information like periodicity
 
+    # TODO: update_time should also check if there are no None values for the derivatives at the given time
+    def update_time(self,fs):
+        # fs is a tuple of functions and their derivatives
+        # in order (fppp,fpp,fp,f)
+        # for now just assuming euler time step
+        assert type(self.time_axis)==str, "need time axis to increment time"
+        assert type(fs)==tuple, "must input a tuple of fields"
+        assert len(fs)>1, "must be at least two fields in tuple"
+        assert np.all([isinstance(f,Field) for f in fs]), " all elements must be fields"
+        assert np.all([self == fs[0].domain for f in fs]), "all fields must share the domain"
 
-    def increment_time(self):
-        assert self.time_axis!=None, "need time axis to increment time"
+        dt = self.dt
+
+        current = {self.time_axis:self.time}
+        next = {self.time_axis:self.time+1}
+
+        for i in range(len(fs)-1):
+            
+            if i==0:
+                der_loc = current
+            else:
+                der_loc = next
+
+            fnew = fs[i+1].get_data(current)+fs[i].get_data(der_loc)*dt
+
+            fs[i+1].set_data(fnew,next,allow_override=False)
+        
         self.time+=1
+
+
 
     @property
     def dt(self):
@@ -158,13 +184,22 @@ class Unknown:
     def __rpow__(self,_):
         raise self
 
+    def __lt__(self,_):
+        return False
+
 class Field:
 
     def __init__(self,domain):
         assert isinstance(domain,Domain), "domain must be a Domain object"
         self.domain = domain
-        self.data = np.full(self.domain.axes_lengths,Unknown(),dtype="object")
 
+
+        # computations on object arrays are about 30 times slower, even with the same data
+        # Unknown and nan behaves the same, nan just prevents you from checking if data is overriding
+        if domain.check_bc:
+            self.data = np.full(self.domain.axes_lengths,Unknown(),dtype="object")
+        else:
+            self.data = np.full(self.domain.axes_lengths,np.nan)
 
     def set_expression(self,expression,location={}):
         
@@ -211,7 +246,7 @@ class Field:
         
         data = np.reshape(data_flat,substitute_axes_lengths)
 
-        self.__set_data(data,location,allow_override=True) # allow override allows you to (for example) override boundary conditions with initial conditions or vice versa
+        self.set_data(data,location,allow_override=True) # allow override allows you to (for example) override boundary conditions with initial conditions or vice versa
 
     def update_values(self,values):
         time_axis = self.domain.time_axis
@@ -245,7 +280,11 @@ class Field:
 
         current_data = f.data[f.__idxs_tuple(current_time)]
 
-        diff = np.zeros(current_data.shape,dtype="object")
+
+        if self.domain.check_bc:
+            diff = np.zeros(current_data.shape,dtype="object")
+        else:
+            diff = np.zeros(current_data.shape)
 
         for i in range(len(kernel.values)):
             diff+=weights[i]*np.roll(current_data,shifts[i],axis=axis_n)
@@ -271,33 +310,18 @@ class Field:
         periodic = kernel.axis in self.domain.periodic
 
         if not periodic:            
-            diff[tuple(start_idxs)] = Unknown()
-            diff[tuple(end_idxs)] = Unknown()
+            if self.domain.check_bc:
+                pad = Unknown()
+            else:
+                pad = np.nan
 
-        self.__set_data(diff,current_time,allow_override=False)
-        
-    def update_time_step(self,f_prime):
+            diff[tuple(start_idxs)] = pad
+            diff[tuple(end_idxs)] = pad
 
-        # updates self using f_prime
-        # for now assuming euler timestep: f = f+fprime*dt
+        self.set_data(diff,current_time,allow_override=False)
 
-        assert isinstance(f_prime,Field), "f_prime must be a field"
 
-        
-        time_axis = self.domain.time_axis
-        if time_axis==None:
-            raise Exception("cant time step since there's no time axis")
-        dt = self.domain.dt 
 
-        current_time = self.domain.time
-        new_time = current_time+1
-
-        f_prime_current = f_prime.get_data({time_axis:current_time})
-        f_current = self.get_data({time_axis:current_time})
-
-        f_new = f_current + f_prime_current*dt
-
-        self.__set_data(f_new,{time_axis:new_time},allow_override=False)
 
     @staticmethod
     def __convert_plot_data(data):
@@ -320,7 +344,8 @@ class Field:
 
         im_data = self.get_data(location)
 
-        im_data = Field.__convert_plot_data(im_data)
+        if self.domain.check_bc:
+            im_data = Field.__convert_plot_data(im_data)
 
 
         location_axes = list(location.keys())
@@ -357,7 +382,8 @@ class Field:
 
         plot_data = self.get_data(location)
 
-        plot_data = Field.__convert_plot_data(plot_data)
+        if self.domain.check_bc:
+            plot_data = Field.__convert_plot_data(plot_data)
 
         location_axes = list(location.keys())
 
@@ -398,7 +424,7 @@ class Field:
         time_axis = self.domain.time_axis
         return self.get_data({time_axis:current_time})
 
-    def __set_data(self,data,location,allow_override):
+    def set_data(self,data,location,allow_override):
 
         # combines self's data at the location with the input data (merging unknown and known values)
         # then sets self's data to merged data
@@ -432,11 +458,20 @@ class Field:
             overriding = not np.all(existing_unknowns)
 
             if allow_override and overriding:
+                # override allowed when bc overrides initial conditions or vice versa (initial setup)
                 warnings.warn("Overriding values",category=Warning)
             elif not allow_override and overriding:
                 raise Exception("attempting to override values")
 
-            data[unknown_mask] = existing_data[unknown_mask]
+
+        else:
+
+            unknown_mask = np.ma.masked_invalid(data).mask
+
+            #unknown_mask = data==np.nan
+
+
+        data[unknown_mask] = existing_data[unknown_mask]
 
 
         self.data[self.__idxs_tuple(location)]  = data

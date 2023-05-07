@@ -2,46 +2,45 @@ from FD import *
 import numpy as np
 import line_profiler
 
-@profile
-def hi():
-    print("HI")
 
-x_range = np.linspace(-5,5,100)
+
+
+
+
+x_range = np.linspace(0,10,50)
 
 d = Domain({
     "x":x_range,
-    "y":x_range
-    ,"t":range(0,2)}
+    "y":range(0,3),
+    "t":range(0,500)}
     ,time_axis="t"
-    ,periodic=["x","y"])
+    ,periodic=["y"]
+    ,check_bc=False)
 
 
 dt = d.dt
 dx = dict(zip(d.axes_names,d.axes_step_size))["x"]
 
 
-CFL = 0.2
+CFL = 0.3
 
 k_coeff = CFL*dx**2/dt
 
 
-print(CFL)
      
 f = Field(d)
 
 
-f.set_expression("exp(-x**2-y**2)",location={"t":0})
-
-f.imshow({"t":0})
-plt.figure()
-
-f.plot({"t":0,"x":0})
-
-plt.show(block=False)
+f.set_expression("exp(-x**2)",location={"t":0})
 
 
-# f.set_expression("0",location={"x":0})
-#f.set_expression("0",location={"x":-1})
+ft = Field(d)
+ft.set_expression("0",location={"t":0})
+
+
+
+f.set_expression("0",location={"x":0})
+f.set_expression("0",location={"x":-1})
 #f.set_expression("0",location={"y":0})
 #f.set_expression("0",location={"y":-1})
 
@@ -58,11 +57,13 @@ for i in range(d.n_time_steps-1):
     fxx.update_der(f,kernel=kx)
     fyy.update_der(f,kernel=ky)
 
-    ft = k_coeff*(fxx+fyy)
+    ftt = k_coeff*(fxx+fyy)
 
-    f.update_time_step(ft)
+    if i%50==0:
+        print(i)
+    d.update_time((ftt,ft,f))
+    #f.update_time_step(ft)
 
-    d.increment_time()
 pass
 
 print("HI")
