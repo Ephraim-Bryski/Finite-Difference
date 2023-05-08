@@ -6,6 +6,7 @@ import itertools
 import warnings
 import numbers
 import line_profiler
+import math
 
 # example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
@@ -119,26 +120,100 @@ class Domain:
         return [axis_range[1]-axis_range[0] for axis_range in self.axes.values()]
 
 
-
+# TODO the kernel won't have any information on the axis and domain, that will instead be done in update_der
+# this way a kernel can be reused across different axes
 
 class Kernel:
     # could construct it as a dictionary with numbers for keys --> allows for negative "indexing"
-    def __init__(self,values,center_idx,der_order,axis,domain):
-            # would then use the axes_step_size property to construct the kernel values
-        assert type(values)==list, "values must be a list"
-        assert type(center_idx)==int, "central index must be an integer"
-        assert type(der_order)==int and der_order>0, "order of the derivative must be a positive integer"
-        assert axis in domain.axes_names, "axis must be in the domain"
-        assert len(values)>center_idx, "center_idx must be an index within the kernel size"
+    def __init__(self,points,der_order):
+
+        assert type(points)==list, "points must be a list of locations to sample from for computing the derivative"
+        assert type(der_order)==int and der_order>0, "derivative order must be a positive integer"
+
+
+        if len(points)<=der_order:
+            raise Exception("there must be at least one more points than the derivative order")
+
+
+
+        points = np.array(points)
+
+        whole_values = np.all(points%1==0)
+        frac_values = np.all((points+0.5)%1==0)
+
+        if whole_values:
+            intermediate = False
+        elif frac_values:
+            intermediate = True
+        else:
+            raise Exception("points need to be all integers or all half values")
+
+
+
+        half_points = points*2
+
+        M_size = len(half_points)
+
+        coeff = np.matrix(half_points)
+        powers = np.matrix(np.arange(0,M_size)).transpose()
+
+        M = np.power(coeff,powers)
+
+        b = np.zeros((M_size,1))
+        b[der_order] = math.factorial(der_order)*2**der_order # 2^der comes from adjusting for the half step size
+
+        weights = np.around(np.linalg.inv(M)*b,2).transpose().tolist()[0]
+
+        # the left edge matches with the left cell when defining the indices (this is how I do it in update_der)
+        if intermediate:
+            shifted_points = points-0.5
+        else:
+            shifted_points = points
         
-        kernel = dict()
-        for i in range(len(values)):
-            value = values[i]
-            shifted_idx = i-center_idx
-            kernel[shifted_idx] = value
-        self.values = kernel
-        self.axis = axis
-        self.der_order = der_order # used for determining what power to raise dx to
+        shifted_points = shifted_points.astype(int)
+
+        values = dict(zip(shifted_points,weights))
+
+        self.values = values
+        self.intermediate = intermediate
+        
+        # these properties are just for to_text so it doesn't have to compute them from values
+        self.__points = points
+        self.__weights = weights
+        self.__der_order = der_order
+        
+        self.to_text()
+
+
+
+    def to_text(self):
+
+        expression_parts = []
+
+        # Iterate over the coefficients and intervals simultaneously
+        for coefficient, interval in zip(self.__weights, self.__points):
+            expression_parts.append(f"{coefficient}f(x+{interval}h)")
+
+        # Join the expression parts with a plus sign
+        numerator = "+".join(expression_parts)
+
+        denominator = f"h^{self.__der_order}"
+
+        der_marks = "".join(["'"]*self.__der_order)
+        derivative = f"f{der_marks}"
+
+        # Wrap the expression in LaTeX delimiters
+
+        equation = f"{derivative} = [{numerator}] / [{denominator}]"
+
+        equation = equation.replace("+-","-")
+        equation = equation.replace(".0","")
+        equation = equation.replace("1f","f")
+        equation = equation.replace("1h","h")
+        equation = equation.replace(")+",") + ")
+        equation = equation.replace(")-",") - ")
+
+        print(f"Finite approximation: {equation}")
 
         # TODO properties on whether it's from_edge and to_edge, check if it matches with fields when taking derivative
 
@@ -173,8 +248,6 @@ class Field:
         assert type(expression)==str, "expression must be a string"
 
 
-        evaluate_axes = set(self.domain.axes_names)-set(location.keys())
-        assert evaluate_axes.intersection(set(self.edge_axes))==set(), "none of the axes it's evaluating over can be edge axes...for now at least"
 
 
 
@@ -187,14 +260,47 @@ class Field:
         substitute_axes_lengths = []
 
         for i in range(len(self.domain.axes_names)):
+
+
+
             axis_name = self.domain.axes_names[i]
             axis_values = self.domain.axes_values[i]
-            axis_lengths = self.domain.axes_lengths[i]
+            axis_length = self.domain.axes_lengths[i]
 
-            if axis_name not in location.keys():
-                substitute_axes_names.append(axis_name)
-                substitute_axes_values.append(axis_values)
-                substitute_axes_lengths.append(axis_lengths)
+            # only evaluating along dimensions not specified in location
+            if axis_name in location.keys():
+                continue
+
+
+            edge_axis = axis_name in self.edge_axes
+            periodic = axis_name in self.domain.periodic
+
+            if edge_axis:
+                # shift the values to the left by delta/2
+                step_sizes = dict(zip(self.domain.axes_names,self.domain.axes_step_size))
+                dx = step_sizes[axis_name]
+
+
+                axis_values = [val-dx/2 for val in axis_values]
+
+
+
+                
+            if edge_axis and not periodic:
+                # for edge axis that aren't periodic, there's an extra value at the end (5 cells means 6 edges)
+                # if it's periodic, it's the same amount since the two edges on the end are the same
+                final_value = axis_values[-1]
+                axis_values.append(final_value+dx)
+                axis_length+=1
+
+
+            substitute_axes_names.append(axis_name)
+            substitute_axes_values.append(axis_values)
+            substitute_axes_lengths.append(axis_length)
+
+
+
+
 
         # constructs nested list of all combinations of values
         value_combs = transpose([list(comb) for comb in itertools.product(*substitute_axes_values)])
@@ -221,7 +327,7 @@ class Field:
         time = self.domain.time
         self.data[self.__idxs_tuple({time_axis:time})] = values
 
-    def update_der(self,f,kernel):
+    def update_der(self,f,kernel,der_axis):
         # updates self by taking the derivative of f using the kernel
         # only performs the calculations at the current time
 
@@ -231,42 +337,35 @@ class Field:
         assert self.domain.time_axis!=None, "why would you update derivative with no time axis"
 
         
-        from_edge = kernel.axis in f.edge_axes
-        to_edge = kernel.axis in self.edge_axes
+        from_edge = der_axis in f.edge_axes
+        to_edge = der_axis in self.edge_axes
 
-        # TODO do assertions to check if kernel's knowledge on from and to edge matches this (properties of kernel)
+ 
+        # basically if the kernel's intermediate has to switch (E->C or C->E) and if it's not it can't
+        if (from_edge and not to_edge) and not kernel.intermediate:
+            raise Exception("going from edges to cells requires kernel with half values in difference approximation")
+        elif (from_edge and not to_edge) and not kernel.intermediate:
+            raise Exception("going from cells to edges requires kernel with half values in difference approximation")
+        elif (from_edge and to_edge) and kernel.intermediate:
+            raise Exception("going from edges to edges requires kernel with integer values in difference approximation")
+        elif (not from_edge and not to_edge) and kernel.intermediate:
+            raise Exception("going from cells to cells requires kernel with integer values in difference approximation")
+        
 
         current_time = {self.domain.time_axis:self.domain.time}
 
         non_time_axes = self.domain.axes_names
         non_time_axes.remove(self.domain.time_axis)
 
-        axis_n = non_time_axes.index(kernel.axis)
+        axis_n = non_time_axes.index(der_axis)
 
         n_axes = len(non_time_axes)
-
-
-        axes_lengths = dict(zip(self.domain.axes_names,self.domain.axes_lengths))
-        kernel_axis_len = axes_lengths[kernel.axis]
 
         shifts = list(kernel.values.keys())
         weights = list(kernel.values.values())
 
 
-        current_data = f.data[f.__idxs_tuple(current_time)] # TODO: i think i could have just done f.now
-
-
-
-        periodic = kernel.axis in self.domain.periodic
-
-
-
-
-        # gonna do it differently, break it up between the periodic and not periodic scenario
-        # won't use roll at all if it's not periodic
-
-        # create diff based on size of self (that's all that's needed)
-
+        periodic = der_axis in self.domain.periodic
 
 
 
@@ -284,8 +383,17 @@ class Field:
 
             derivative = np.full(self.now.shape,np.nan)
 
-            min_shift = shifts[0]
-            max_shift = shifts[-1]
+            from_edge = der_axis in f.edge_axes
+            to_edge = der_axis in self.edge_axes
+
+            if from_edge and not to_edge:
+                # E->C means that one more cell on the right that could potentially be filled has to be eliminated if all the points are on the left side (shits[-1]<=0)
+                allowable_max_shift  = 1
+            else:
+                allowable_max_shift = 0
+
+            min_shift = min(shifts[0],0)
+            max_shift = max(shifts[-1],allowable_max_shift)
 
             original_length = f.now.shape[axis_n]
             partial_length = original_length+min_shift-max_shift

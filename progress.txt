@@ -1,33 +1,27 @@
 can do very basic (and very slow) simulations in multiple dimensions, but basically just limited to difusion and advection right now
 
-
-speed up by:
-    right now it differentiates on entire matrix across all time, just differentiate on current time
-
-replace matrix multiplication with convolution, makes it much simpler, Unknown type no longer required for convolution, multidimensional very simple then
-
-fields which are edges of other fields (e.g. temperature flux is on the edges of temperature cells)
-    would allow for boundary conditions on these derivative fields
-
-second derivatives of time may require something similar, first derivatives on the edges at half time first?
-    could also have the timestep method take the derivative order as an argument?
     
 
 need to figure out how to make defining kernels straightforward, possibilities:
 
+    start with derivative order and right/left/center --> produces kernel
+    center_idx can be 1/2 for C->E (then what about E->C)
+        dictionary instead?
+    use whatever's behind https://web.media.mit.edu/~crtaylor/calculator.html specify locations, it returns weights
+        would also have to specify E->C or C->E 
+            use values mod 0.5 instead? (ignore distinction between E->C and C->E)
+        very straightforward, done in mar572 BUT not sure how this extends for E->C or C->E
 
-diff method for Field needs to divide by the step size
 
+assuming this works, kernel input can just be the derivative order and the index locations, no axis or domain
+    indices would have to be all integers or all integers+1/2
 
 methods for initial conditions and boundary conditions which would call set_expression
 
-for boundary conditions, allow to set value at last cell
 
 allow to get data based on coordinate instead of index
 
 check variables in expression for set_expression --> better error messages for invalid expression
-
-show method can be much simpler now that im using numpy arrays instead
 
 good visualization of fields
 
