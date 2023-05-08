@@ -55,7 +55,6 @@ class Domain:
 
         # would also have information like periodicity
 
-    # TODO: update_time should also check if there are no None values for the derivatives at the given time
     def update_time(self,fs):
         # fs is a tuple of functions and their derivatives
         # in order (fppp,fpp,fp,f)
@@ -81,10 +80,14 @@ class Domain:
             fnew = fs[i+1].get_data(current)+fs[i].get_data(der_loc)*dt
 
             fs[i+1].set_data(fnew,next,allow_override=False)
-        
+            pass
+
+        # the time derivatives may still have nans, BUT the final new f MUST have no nans:
+        new_f = fs[-1].get_data(next)
+        if np.any(np.isnan(new_f)):
+            raise Exception("insufficient boundary conditions")
+
         self.time+=1
-
-
 
     @property
     def dt(self):
@@ -137,66 +140,42 @@ class Kernel:
         self.axis = axis
         self.der_order = der_order # used for determining what power to raise dx to
 
-  
-class Unknown:
-    def __init__(self):
-        pass
-
-    def __repr__(self):
-        return "?"
-
-    def __neg__(self):
-        return self
-        
-    def __add__(self,_):
-        return self
-    
-    def __sub__(self,_):
-        return self
-        
-    def __mul__(self,_):
-        return self
-
-    def __truediv__(self,_):
-        return self
-   
-    def __pow__(self,_):
-        return self
-    
-    def __radd__(self,_):
-        return self
-    
-    def __rsub__(self,_):
-        return self
-    
-    def __rmul__(self,_):
-        return self
-    
-    def __rtruediv__(self,_):
-        raise self
-    
-    def __rpow__(self,_):
-        raise self
-
-    def __lt__(self,_):
-        return False
+        # TODO properties on whether it's from_edge and to_edge, check if it matches with fields when taking derivative
 
 class Field:
 
-    def __init__(self,domain):
+    def __init__(self,domain,edge_axes = []):
+
         assert isinstance(domain,Domain), "domain must be a Domain object"
+
+        axes = domain.axes_names
+
+        assert set(edge_axes)-set(axes)==set(), "edge_axes must be axes in the domain"
+
+
+        axes_lengths = dict(zip(domain.axes_names,domain.axes_lengths))
+
+        for axis in edge_axes:
+            if axis not in domain.periodic:
+                axes_lengths[axis]+=1
+
+        axes_lengths = tuple(axes_lengths.values())
+
         self.domain = domain
-
-
-        self.data = np.full(self.domain.axes_lengths,np.nan)
+        self.edge_axes = edge_axes
+        self.data = np.full(axes_lengths,np.nan)
 
     def set_expression(self,expression,location={}):
-        
         # sets the data to the value of the expression at the specified location
         # used for boundary conditions and initial conditions
 
         self.__check_valid_idx(location)
         assert type(expression)==str, "expression must be a string"
+
+
+        evaluate_axes = set(self.domain.axes_names)-set(location.keys())
+        assert evaluate_axes.intersection(set(self.edge_axes))==set(), "none of the axes it's evaluating over can be edge axes...for now at least"
+
 
 
         def transpose(nested_list):
@@ -239,7 +218,8 @@ class Field:
 
     def update_values(self,values):
         time_axis = self.domain.time_axis
-        self.data[self.__idxs_tuple({time_axis:-1})] = values
+        time = self.domain.time
+        self.data[self.__idxs_tuple({time_axis:time})] = values
 
     def update_der(self,f,kernel):
         # updates self by taking the derivative of f using the kernel
@@ -248,7 +228,13 @@ class Field:
         assert isinstance(f,Field), "f must be a Field object"
         assert isinstance(kernel,Kernel), "kernel must be a Kernel object"
         assert self.domain==f.domain, "derivative and function must have the same domain"
+        assert self.domain.time_axis!=None, "why would you update derivative with no time axis"
 
+        
+        from_edge = kernel.axis in f.edge_axes
+        to_edge = kernel.axis in self.edge_axes
+
+        # TODO do assertions to check if kernel's knowledge on from and to edge matches this (properties of kernel)
 
         current_time = {self.domain.time_axis:self.domain.time}
 
@@ -267,42 +253,74 @@ class Field:
         weights = list(kernel.values.values())
 
 
-        current_data = f.data[f.__idxs_tuple(current_time)]
+        current_data = f.data[f.__idxs_tuple(current_time)] # TODO: i think i could have just done f.now
 
 
-        
-        diff = np.zeros(current_data.shape)
-
-        for i in range(len(kernel.values)):
-            diff+=weights[i]*np.roll(current_data,shifts[i],axis=axis_n)
-
-        step_sizes = dict(zip(self.domain.axes_names,self.domain.axes_step_size))
-        dx = step_sizes[kernel.axis]
-
-    
-
-        diff/=dx**kernel.der_order
-
-
-        left_cut = -shifts[0]
-        right_cut = shifts[-1]
-
-
-        start_idxs = [slice(None)]*n_axes
-        start_idxs[axis_n] = slice(0,left_cut)
-
-        end_idxs = [slice(None)]*n_axes
-        end_idxs[axis_n] = slice(kernel_axis_len-right_cut,kernel_axis_len)
 
         periodic = kernel.axis in self.domain.periodic
 
-        if not periodic:            
+
+
+
+        # gonna do it differently, break it up between the periodic and not periodic scenario
+        # won't use roll at all if it's not periodic
+
+        # create diff based on size of self (that's all that's needed)
+
+
+
+
+        if periodic:
+            # for edge and periodic, it's just gonna be one less length, so can just roll now :) no removing and/or copying required
+
+            derivative = np.zeros(self.now.shape)
+
+            for i in range(len(shifts)):
+                diff+=weights[i]*np.roll(f.now,shifts[i],axis=axis_n)
+
+
+        # not periodic case:
+        else:
+
+            derivative = np.full(self.now.shape,np.nan)
+
+            min_shift = shifts[0]
+            max_shift = shifts[-1]
+
+            original_length = f.now.shape[axis_n]
+            partial_length = original_length+min_shift-max_shift
             
+            section_shape = list(self.now.shape)
+            section_shape[axis_n] = partial_length
+            section_derivative = np.zeros(section_shape)
 
-            diff[tuple(start_idxs)] = np.nan
-            diff[tuple(end_idxs)] = np.nan
+            # need to pad current_data with nan on the right side if C -> E
 
-        self.set_data(diff,current_time,allow_override=False)
+            for i in range(len(shifts)):
+
+                shift = shifts[i]
+                lower_idx = shift-min_shift
+                upper_idx = shift-min_shift+partial_length
+
+                idxs = [slice(None)]*n_axes
+                idxs[axis_n] = slice(lower_idx,upper_idx)
+                idxs = tuple(idxs)
+
+                section_derivative+=weights[i]*f.now[idxs]
+
+            lower_placement_idx = -min_shift
+            upper_placement_idx = -min_shift+partial_length
+
+
+            placement_idxs = [slice(None)]*n_axes
+            placement_idxs[axis_n] = slice(lower_placement_idx,upper_placement_idx)
+            placement_idxs = tuple(placement_idxs)
+
+            derivative[placement_idxs] = section_derivative
+
+  
+
+        self.set_data(derivative,current_time,allow_override=False)
 
 
 
@@ -403,12 +421,6 @@ class Field:
 
 
 
-        # this approach is a much faster alternative to checking whether each value is an Unknown object
-        # faster since this is done in parallel while those checks (even with vectorize) wouldn't
-
-
-
-
         unknown_mask = np.isnan(data)
         known_mask = np.invert(unknown_mask)
 
@@ -425,6 +437,7 @@ class Field:
 
 
         data[unknown_mask] = existing_data[unknown_mask]
+
 
 
         self.data[self.__idxs_tuple(location)]  = data
@@ -447,7 +460,6 @@ class Field:
         # converts a dictionary of idxs to a tuple of indices which can be used to index the numpy array
         # {a:1,b:2} --> (1,2,:)            if axes are a,b,c
 
-        # TODO might make more sense to make this method of domain instead
         idxs_filled = dict()
         for axis in self.domain.axes:
             if axis not in idxs.keys():
@@ -477,14 +489,14 @@ class Field:
         domains = []
 
 
+        new_field = Field(op1.domain)
+
+
         if op2==None:
             # case for single argument, i think just negation
-            # TODO update this
-            new_field = Field(op1.dims,None)
             new_field.data = [op(val) for val in op1.data]
-
-        new_field = Field(op1.domain)
-        new_field.data = op(get_operand_data(op1),get_operand_data(op2))
+        else:
+            new_field.data = op(get_operand_data(op1),get_operand_data(op2))
 
 
         if len(domains)==2 and domains[0]!=domains[1]:
