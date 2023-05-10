@@ -1,73 +1,62 @@
 from FD import *
 import numpy as np
-import line_profiler
+
+m = Model(
+    {"x":np.linspace(-5,5,100),
+     #"y":np.linspace(-5,5,100),
+     "t":range(0,2000)},
+     periodic=["x"],
+     time_axis="t"
+)
+
+# TODO should be some property set_IC sets to true --> if it's the first timestep and it IC haven't been applied and the field has a time derivative, throw an error
+# wait actually, it's okay cause you'll get  
+
+u = Field(m,edge_axes="x",n_time_ders=1)
+
+eta = Field(m,n_time_ders=1)
+
+
+#u.set_BC("0","x","start")
+#u.set_BC("0","x","end")
+
+#u.set_BC("0","y","start")
+#u.set_BC("0","y","end")
+
+
+eta.set_IC("exp(-x**2)")
+u.set_IC("0")
+
+#dudx = Field(m)
+#dudy = Field(m)
+
+c_e = Stencil([-1/2,1/2],1,axis_type="cell",der_axis_type="edge")
+e_c = Stencil([-1,1],1,axis_type="edge",der_axis_type="edge")
 
 
 
+cx = .1
+cy = .1
+
+g = 1
+h = 1
+
+# TODO add assertion 
+
+while not m.finished:
+    detadx = c_e.der(eta.prev,"x") # required to write u.prev
+    
+    # TODO assign_update doesn't give an error if the FieldInstant edges vs. cells is different than the field (might have checked size instead, but that doesn't work for PBC)
+    u.dot.assign_update(g*detadx)
+
+    u.time_integrate_update()
+
+    dudx = e_c.der(u.new,"x")
+
+    eta.dot.assign_update(h*dudx)
 
 
+    eta.time_integrate_update()
 
-x_range = np.linspace(0,10,100)
-
-d = Domain({
-    "x":x_range,
-    "y":x_range,
-    "t":range(0,500)}
-    ,time_axis="t"
-    ,periodic=[])
-
-
-dt = d.dt
-dx = dict(zip(d.axes_names,d.axes_step_size))["x"]
-
-
-CFL = 0.3
-
-k_coeff = CFL*dx**2/dt
-
-
-     
-f = Field(d)
-
-
-f.set_expression("exp(-x**2)",location={"t":0})
-
-
-ft = Field(d)
-ft.set_expression("0",location={"t":0})
-
-
-
-f.set_expression("0",location={"x":0})
-f.set_expression("0",location={"x":-1})
-f.set_expression("0",location={"y":0})
-f.set_expression("0",location={"y":-1})
-
-
-fxx = Field(d)
-fyy = Field(d)
-
-kx = Kernel([1,-2,1],center_idx=1,der_order=2,axis="x",domain=d)
-ky = Kernel([1,-2,1],center_idx=1,der_order=2,axis="y",domain=d)
-
-ftt = Field(d)
-
-
-for i in range(d.n_time_steps-1):
-
-    fxx.update_der(f,kernel=kx)
-    fyy.update_der(f,kernel=ky)
-
-    ftt.update_values(k_coeff*(fxx.now+fyy.now))
-    # ftt = k_coeff*(fxx+fyy)
-    if i%50==0:
-        print(i)
-    d.update_time((ftt,ft,f))
-    #f.update_time_step(ft)
-
+    m.increment_time()
 pass
-
-print("HI")
-
-plt.show()
-

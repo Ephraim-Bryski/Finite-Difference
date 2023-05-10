@@ -1,20 +1,17 @@
-can do very basic (and very slow) simulations in multiple dimensions, but basically just limited to difusion and advection right now
+can do very basic simulations in multiple dimensions, but basically just limited to difusion and advection right now
 
-    
+constant field which can't be updated (e.g. for depth for the wave equation)
 
-need to figure out how to make defining kernels straightforward, possibilities:
+set initial conditions to piecewise function
+    specify range of values to set it for as an optional argument
 
-    start with derivative order and right/left/center --> produces kernel
-    center_idx can be 1/2 for C->E (then what about E->C)
-        dictionary instead?
-    use whatever's behind https://web.media.mit.edu/~crtaylor/calculator.html specify locations, it returns weights
-        would also have to specify E->C or C->E 
-            use values mod 0.5 instead? (ignore distinction between E->C and C->E)
-        very straightforward, done in mar572 BUT not sure how this extends for E->C or C->E
+could make creating a field a method of Model (which should instead be called Model)
+    this way the Model object would now have access to all the fields (stored in a tuple)
+        allows for check that all of them have been time updated
 
-
-assuming this works, kernel input can just be the derivative order and the index locations, no axis or domain
-    indices would have to be all integers or all integers+1/2
+create new class for a field at the current time --> allows for better error handling if there's a size mismatch
+    then no computations allowed on fields, computations only allowed on these slices
+    f.now returns an instance, as does f.derivative()
 
 methods for initial conditions and boundary conditions which would call set_expression
 
@@ -27,5 +24,4 @@ good visualization of fields
 
 more consistent/better naming
     values instead of data
-    used dim and axes interchangably 
 
