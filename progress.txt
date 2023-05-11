@@ -1,27 +1,52 @@
-can do very basic simulations in multiple dimensions, but basically just limited to difusion and advection right now
-
-constant field which can't be updated (e.g. for depth for the wave equation)
-
-set initial conditions to piecewise function
-    specify range of values to set it for as an optional argument
-
-could make creating a field a method of Model (which should instead be called Model)
-    this way the Model object would now have access to all the fields (stored in a tuple)
-        allows for check that all of them have been time updated
-
-create new class for a field at the current time --> allows for better error handling if there's a size mismatch
-    then no computations allowed on fields, computations only allowed on these slices
-    f.now returns an instance, as does f.derivative()
-
-methods for initial conditions and boundary conditions which would call set_expression
+can do very basic simulations in multiple dimensions
 
 
-allow to get data based on coordinate instead of index
 
-check variables in expression for set_expression --> better error messages for invalid expression
 
-good visualization of fields
+User Messages
 
-more consistent/better naming
-    values instead of data
+    overall better error messages --> specify names (e.g. of axes) whenever possible
 
+    warning if unknowns are spreading (would have to compare second iteration vs first iteration)
+
+    add assertion that all IC are set up properly before starting the run 
+
+    check variables in expression for set_expression --> better error messages for invalid expression
+
+Additional Stuff Now
+
+    good visualization of fields
+
+    give fields names so they can be referenced here in the error message
+        important for creating interactive visuals <-- need names for fields
+
+Refactor
+
+    make properties that are lists that should be immutable tuples
+
+    improved comments
+
+    more consistent/better naming
+        values instead of data?
+        old instead of prev?
+        fieldslice? be consistent at least
+
+
+Additional Stuff Later
+
+
+
+    set initial conditions to piecewise function
+        specify range of values to set it for as an optional argument
+        allow to get data based on coordinate instead of index
+
+
+
+
+    runge-kutta
+
+    solve BVP
+
+    constant field which can't be updated (e.g. for depth for the wave equation)
+
+    vector fields (and operations like grad div)

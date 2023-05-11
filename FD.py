@@ -7,6 +7,8 @@ import warnings
 import numbers
 import line_profiler
 import math
+import ipywidgets.widgets as widgets
+import inspect
 
 # example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
@@ -58,8 +60,6 @@ class Model:
         # would also have information like periodicity
 
     def increment_time(self):
-        # TODO give fields names so they can be referenced here in the error message
-
 
         def clear_update(field):
             field.updated = False
@@ -71,6 +71,125 @@ class Model:
             clear_update(field)
 
         self.time_step+=1
+
+
+
+    def interact(self):
+
+        # could have property saying whether interact has already been called, if it has replace the previous figure with a new one
+
+        assert self.time_axis!=None, "need time axis to interact, for now at least"
+        
+
+
+        field_names = [field.name for field in self.fields]
+
+        field_dropdown = widgets.Dropdown(options=field_names, description='Field')
+
+        time_values = self.axes[self.time_axis]
+
+        min_time = time_values[0]
+        dt = self.dt
+        max_time = time_values[-1]
+
+
+        n_plot_dims = len(self.axes)-1 # subtracting one due to time
+
+        plt.close("all")
+        fig, ax = plt.subplots(figsize=(6, 4))
+
+
+        space_axes = self.axes.copy()
+
+        space_axes.pop(self.time_axis)
+
+
+
+
+        if n_plot_dims>2:
+            raise Exception("for now can only visualize with 1 or 2 space dimensions")
+
+            
+
+
+        time_axis_idx = self.axes_names.index(self.time_axis)
+
+
+        @widgets.interact(field_name=field_dropdown, t = (min_time,max_time,dt))
+        def update(field_name = field_names[0], t=1):
+            for artist in plt.gca().lines + plt.gca().collections:
+                artist.remove()
+
+            field_idx = field_names.index(field_name)
+
+            data = self.fields[field_idx].data
+
+
+            # min and max across all data so that the color scale/ylim doesn't change moving through time
+            max_val = np.nanmax(data)
+            min_val = np.nanmin(data)
+
+
+            # only relevant if everything is nan (but prevents error when setting)
+            if np.isnan(max_val):
+                max_val = 0.1
+
+            if np.isnan(min_val):
+                min_val = 0 #  so it doesn't warn about same values for bounds
+                
+
+
+
+            time_values = self.axes[self.time_axis].tolist()
+            time_idx = time_values.index(t)
+
+            slice_idxs = [slice(None)]*len(data.shape)
+
+            slice_idxs[time_axis_idx] = time_idx
+
+
+            data_slice = data[tuple(slice_idxs)]
+
+            space_names = list(space_axes.keys())
+            space_values = list(space_axes.values())
+
+
+            x_values = space_values[0]
+            ax.set_xlim(x_values[0],x_values[-1])
+            ax.set_xlabel(space_names[0])
+
+
+            if n_plot_dims==1:
+
+                ax.set_ylabel(field_name)
+
+
+                ax.set_ylim(min_val,max_val)
+                ax.plot(space_values[0],data_slice,color="blue")
+
+            else:
+                y_values = space_values[1]
+
+                ax.set_ylabel(space_names[1])
+                ax.set_ylim(y_values[0],y_values[-1])
+
+                # this is also used in the Field imshow method:
+                im_data = np.flipud(np.transpose(data_slice))
+
+                ax.imshow(im_data,
+                          extent=[x_values[0],x_values[-1],y_values[0],y_values[-1]],
+                          vmin = min_val,
+                          vmax = max_val
+                          )
+
+        #update()
+
+            
+        # what do i need to give the widgets? :
+            # 
+                # name
+
+
 
     @property
     def finished(self):
@@ -239,12 +358,11 @@ class Stencil:
 
         from_edge = der_axis in f.edge_axes
 
-        # TODO error message is a bit confusing since a field can be edge along one axis but cell along another
         if from_edge and not stencil.from_edge:
-            raise Exception("Stencil takes a cell field but an edge field was given")
+            raise Exception(f"Stencil takes a field with cells, but the field has edges along the {der_axis} axis")
         
         elif not from_edge and stencil.from_edge:
-            raise Exception("Stencil takes an edge field but a cell field was given")
+            raise Exception(f"Stencil takes a field with edges, but the field has cells along the {der_axis} axis")
         
 
         to_edge = stencil.to_edge
@@ -350,10 +468,15 @@ class Stencil:
 
 class Field:
 
-    def __init__(self,model,edge_axes = [],n_time_ders=0):
+    def __init__(self,model,name,edge_axes = [],n_time_ders=0):
 
-
+        
         assert isinstance(model,Model), "model must be a Model object"
+
+        assert type(name)==str, "field name must be a string"
+
+
+        self.name = name
 
         axes = model.axes_names
 
@@ -365,12 +488,12 @@ class Field:
         assert type(n_time_ders)==int and n_time_ders>=0, "n_time_ders must be an integer greater than equal to 0"
 
         if n_time_ders>0:
-            self.dot = Field(model,edge_axes,n_time_ders-1)
+            self.dot = Field(model,f"{self.name} dot",edge_axes,n_time_ders-1)
         else:
             self.dot = None
+            
 
-        model.fields.append(self) # model has a list of all the fields
-
+        model.fields.append(self)
 
         axes_lengths = dict(zip(model.axes_names,model.axes_lengths))
 
@@ -407,6 +530,7 @@ class Field:
     def set_IC(self,expression):
         assert self.dot!=None, "field must have a time derivative to set initial conditions"
         time_axis = self.model.time_axis
+        assert time_axis!=None, "the model must have a time axis to set the initial conditions"
         self.__set_expression(expression,{time_axis:0})
 
     def set_BC(self,expression,axis,side):
@@ -489,7 +613,6 @@ class Field:
         value_combs = transpose([list(comb) for comb in itertools.product(*substitute_axes_values)])
         subs = dict(zip(substitute_axes_names,value_combs))
 
-        # TODO: use more granular check, first checking if all the variables in the expression are axes, may require sympy
         try:
             data_flat = numexpr.evaluate(expression,subs)
         except:
@@ -533,8 +656,6 @@ class Field:
         dt = self.model.dt
         new_slice = self.prev + self.dot.new*dt
 
-        # TODO more than just euler's method, allow runge kutta as well
-
         time_axis = self.model.time_axis
         time = self.model.time_step+1 # +1 since it's updating the following value
 
@@ -543,7 +664,8 @@ class Field:
 
 
         if np.any(np.isnan(self.new.data)):
-            raise Exception("unknown values of field after time integration")
+            pass
+            #raise Exception("unknown values of field after time integration")
 
 
 
@@ -557,6 +679,19 @@ class Field:
 
 
         assert isinstance(field_slice,FieldInstant),"must input field slice"
+
+
+
+        field_edge_axes = set(self.edge_axes)-set(location.keys())
+        slice_edge_axes = set(field_slice.edge_axes)-set(location.keys())
+
+        assert field_edge_axes==slice_edge_axes, "field edge axes and field slice edge axes must match"
+        # check that edge_axes between the field and the field_slice match for axes not in the location
+        
+
+
+
+
         data = field_slice.data
 
         idxs_tuple =  self.__idxs_tuple(location)
@@ -593,8 +728,6 @@ class Field:
 
     def __get_data(self,location={}):
         
-
-        # TODO make it return an object of a class NowField
 
         # returns an n-dimensional numpy array of the data at the given location 
 
@@ -641,13 +774,26 @@ class Field:
                 idxs_filled[axis] = idxs[axis]
 
         return tuple(idxs_filled[axis] for axis in self.model.axes)
+    
+
+
+
+
+
+
+
+
+
 
     def imshow(self,location={}):
 
+        # noninteractive visual of field
+
+        # a bit redundant with the interact method (but implemented differently)
+        # why keep this:
+            # can run without notebook
+            # more general (location can be for any set of axes, not just time)
         
-
-        im_data = self.__get_data(location).data
-
 
 
         location_axes = list(location.keys())
@@ -661,6 +807,8 @@ class Field:
         elif len(im_axes)>2:
             raise Exception("cannot suppport more than 2-dimensional data for imshow")
         
+
+
         x_axis = im_axes[0]
         y_axis = im_axes[1]
 
@@ -674,12 +822,35 @@ class Field:
 
         bounds_flat = [val for bound in bounds for val in bound]
 
+
+        # why transpose? ...
+        # for the original data
+            # the higher priority axis (which comes first) is the rows --> y axis for imshow 
+            # the lower priority axis (which comes second) is the columns --> x axis for imshow
+        # BUT bounds go x values first then y values
+        # therefore I need to take the transpose so the two match
+
+        # why flipped up down?...
+        # when tranposing, columns to the right become rows lower down
+        # but when plotting rows lower down mean lower values --> need to flip them to the top
+
+        im_data0 = self.__get_data(location).data
+
+        im_data = np.flipud(np.transpose(im_data0))
+
+
         plt.imshow(im_data,extent=bounds_flat)
         plt.xlabel(x_axis)
         plt.ylabel(y_axis)
     
     def plot(self,location={}):
 
+        # as with imshow, noninteractive visual of field
+
+        # a bit redundant with the interact method (but implemented differently)
+        # why keep this:
+            # can run without notebook
+            # more general (location can be for any set of axes, not just time)
 
         plot_data = self.__get_data(location).data
 
@@ -708,48 +879,42 @@ class Field:
         return f"{len(self.model.axes_names)}-dimensional Field, dimension lengths: {dict(zip(self.model.axes_names,self.model.axes_lengths))}"
        
     
-
-    def __field_op(op1,op2,op):
-
+    @staticmethod
+    def __field_op():
         raise TypeError("Cannot perform arithmetic between fields directly. First use the prev or new properties to get the fields at the current timestep.")
 
-
-    # TODO doesn't need to take the operation as an argument, nor does it need to return anything
-
     def __neg__(self):
-        return Field.__field_op(self,None,operator.neg)
+        Field.__field_op()
     
     def __add__(self,other):
-        return self.__field_op(other,operator.add)
+        Field.__field_op()
     
-    def __sub__(self,other):
-        return Field.__field_op(self,other,operator.sub)
+    def __sub__(self):
+        Field.__field_op()
     
-    def __mul__(self,other):
-        return Field.__field_op(self,other,operator.mul)
+    def __mul__(self):
+        Field.__field_op()
 
-    def __truediv__(self,other):
-        assert not isinstance(other,Field), "cannot divide by field"
-        return Field.__field_op(self,other,operator.truediv)
+    def __truediv__(self):
+        Field.__field_op()
    
-    def __pow__(self,other):
-        assert not isinstance(other,Field), "cannot raise to field"
-        return Field.__field_op(self,other,operator.pow)
+    def __pow__(self):
+        Field.__field_op()
     
-    def __radd__(self,other):
-        return Field.__field_op(self,other,operator.add)
+    def __radd__(self):
+        Field.__field_op()
     
-    def __rsub__(self,other):
-        return Field.__field_op(self,other,operator.sub)
+    def __rsub__(self):
+        Field.__field_op()
     
-    def __rmul__(self,other):
-        return Field.__field_op(self,other,operator.mul)
+    def __rmul__(self):
+        Field.__field_op()
     
-    def __rtruediv__(self,other):
-        return Field.__field_op(self,other,operator.mul)
+    def __rtruediv__(self):
+        Field.__field_op()
     
-    def __rpow__(self,other):
-        return Field.__field_op(self,other,operator.mul)
+    def __rpow__(self):
+        Field.__field_op()
     
 
 
