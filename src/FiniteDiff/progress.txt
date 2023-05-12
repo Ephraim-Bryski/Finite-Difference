@@ -2,50 +2,30 @@ can do very basic simulations in multiple dimensions
 
 Bugs
 
-    imshow plots are not getting cleared when using ipywidgets
-    when no fields, get an error about field_names index out of range --> catch sooner
-    Stencil([1,-2,1],2) gives singular matrix error --> need to catch earlier (i think cause of duplicate values)
-    catch error if only one number in axis array when constructing model
-    when time values are infinite repeating decimals (e.g. 1/3 or 0.333 etc.) gets an error that it can't get the index for the slider
-        just get the closest value instead
+
 
 User Messages/Interface Improvements
 
     having time derivative fields for dropdown is a bit too much --> mabye filter out fields with "dot" in the name
 
-
-
     overall better error messages --> specify names (e.g. of axes) whenever possible
+
+
+
+
+
 
     warning if unknowns are spreading (would have to compare second iteration vs first iteration)
 
     add assertion that all IC are set up properly before starting the run 
 
-    check variables in expression for set_expression --> better error messages for invalid expression
-
-    if prev used instead of new, maybe suggest that time wasn't incremented?
 
 
-Additional Stuff Now
-
-    good visualization of fields
-
-    give fields names so they can be referenced here in the error message
-        important for creating interactive visuals <-- need names for fields
-
-Refactor
-
-    make properties that are lists that should be immutable tuples
-
-    improved comments
-
-    more consistent/better naming
-        values instead of data?
-        old instead of prev?
-        fieldslice? be consistent at least
 
 
 Additional Stuff Later
+
+    actually good visualization of fields
 
     when setting expressions, you can't include variable values cause it's just strings
         not sure how to fix this one D:
@@ -53,9 +33,6 @@ Additional Stuff Later
     set initial conditions to piecewise function
         specify range of values to set it for as an optional argument
         allow to get data based on coordinate instead of index
-
-
-
 
     runge-kutta
 
