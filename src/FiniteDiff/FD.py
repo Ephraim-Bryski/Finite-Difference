@@ -5,10 +5,8 @@ import numexpr
 import itertools
 import warnings
 import numbers
-import line_profiler
 import math
 import ipywidgets.widgets as widgets
-import inspect
 
 # example of use: for wave equation deta/dx would be on the edges, then d/dx deta/dx would be back on the squares, bc can be applied to deta/dx on either side before differentiating again
 
@@ -76,7 +74,7 @@ class Model:
 
     def interact(self):
 
-        # could have property saying whether interact has already been called, if it has replace the previous figure with a new one
+        # TODO could have property saying whether interact has already been called, if it has replace the previous figure with a new one
 
         assert self.time_axis!=None, "need time axis to interact, for now at least"
         
