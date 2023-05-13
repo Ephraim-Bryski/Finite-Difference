@@ -562,7 +562,7 @@ This is possibly due to insufficent boundary conditions\n")
             print(f"Boundary conditions and initial conditions may be in conflict for field {field_slice.name}\n\
 Conflicting values override and become equal to whatever was assigned last\n")
         elif not allow_override and overriding:
-            raise Exception("attempting to override values")
+            raise Exception("attempting to override values, this may be due to too many boundary conditions.")
 
         data[unknown_mask] = existing_data[unknown_mask]
 
