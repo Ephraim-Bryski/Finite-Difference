@@ -10,6 +10,7 @@ import ipywidgets.widgets as widgets
 import re
 
 
+
 class Model:
 
     def __init__(self, axes: dict, time_axis: str, periodic: tuple = ()):
@@ -107,6 +108,8 @@ class Model:
                 clear_update(field.dot)
 
         for field in self.fields:
+            if isinstance(field,ConstantField):
+                continue
             assert field.updated, f"all fields must be updated in the iteration, {field.name} has not been"
             clear_update(field)
 
@@ -525,10 +528,14 @@ instead first use the assign_update method and then use the new property"
         prev_nan_count = np.isnan(prev_data).sum()
         new_nan_count = np.isnan(new_data).sum()
 
-        if new_nan_count > prev_nan_count and not self.model.insufficient_bc:
-            print("Warning: fields are losing data over time\n\
+        # im not 100% sure if this will always work correctly, 
+        # but if there's more unknowns than there were before,
+        # and it's not the first timestep,
+        # that's an indication the unknowns are spreading
+        if time>1 and new_nan_count > prev_nan_count and not self.model.insufficient_bc:
+            print("Warning: fields seem to be losing data over time\n\
 This is possibly due to insufficent boundary conditions\n")
-            self.model.insufficient_bc = True
+            self.model.insufficient_bc = True # so it doesn't give the warning over and over again
 
 
     def __set_data(self, field_slice, location, allow_override):
@@ -696,7 +703,7 @@ Conflicting values override and become equal to whatever was assigned last\n")
     def __field_op():
         raise TypeError(
             "Cannot perform arithmetic between fields directly. First use the \
-                prev or new properties to get the fields at the current timestep.")
+prev or new properties to get the fields at the current timestep.")
 
     def __neg__(self):
         Field.__field_op()
@@ -731,6 +738,38 @@ Conflicting values override and become equal to whatever was assigned last\n")
     def __rpow__(self):
         Field.__field_op()
 
+class ConstantField(Field):
+
+    def __init__(self, model: Model, name: str, edge_axes: tuple = ()):
+
+        """
+        A Field which does not change with time
+
+        model: a Model object which the field is part of, all fields should share the same model
+        name: field name, used for labeling plots
+        edge_axes: the axes along which the values of the field are at the edges, between cells
+        """
+        super().__init__(model, name, edge_axes, 0)
+        self.updated = True
+
+    @property
+    def prev(self):
+        raise Exception("prev property not allowed for ConstantField, use always property instead")
+
+    @property
+    def always(self):
+        time_axis = self.model.time_axis
+        return self._Field__get_data({time_axis: 0}) # could choose any time
+
+    def set_IC(self,_):
+        raise Exception("set_IC not allowed for ConstantField, use set instead")
+    
+    def set_BC(self,_):
+        raise Exception("set_BC not allowed for ConstantField, use set instead")
+    
+    def set(self,expression):
+        # TODO this still allows them to make the field time dependent, it's ok though
+        self._Field__set_expression(expression)
 
 class FieldInstant:
 
@@ -750,7 +789,7 @@ class FieldInstant:
 
     def __str__(self) -> str:
         return f"{len(self.model.axes_names)}-dimensional field at the current time,\n\
-              Dimension lengths: {dict(zip(self.model.axes_names,self.model.axes_lengths))}"
+Dimension lengths: {dict(zip(self.model.axes_names,self.model.axes_lengths))}"
 
     def __field_op(op1, op2, operation):
 

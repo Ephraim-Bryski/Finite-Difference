@@ -2,62 +2,61 @@ This is a library for setting up basic time-dependent finite difference problems
 
 Procedure for performing a simulation, the sample code showing the creation of a model for thermal diffusion:
 
+I see this as mainly an educational tool, although if more features are added (e.g. boundary value problems and vector fields), maybe it could be helpful for some research.
+
+Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.
+
+For more examples, see TODO link
+
 0. Import the module.
 
 ```python
 # TODO need to figure out what the import will look like
 ```
 
-1. Create a single Model object for the domain, with a time dimension and space dimension(s). Any of these spatial dimensions can be periodic.
+1. Create a single Model object for the domain, with a time dimension and space dimension(s).
 
 ```python
+
 m = FD.Model({"x": range(1,100,4), "t": range(1,10)}, time_axis = "t")
 ```
 
-2. Create fields representing a property that changes over time as a scalar field. For this example, temperature would be at the cells, while temperature flux would be at the edges between the cells.
+2. Create fields representing a property that changes over time as a scalar field. 
 
 ```python
+
 T = FD.Field(m, "Temperature", n_time_ders = 1)
-Tflux = FD.Field(m, "Temperature Flux", n_time_ders = 0, edge_axes = "x")
 ```
 
 3. Create stencils for numerical approximations of spatial derivatives.
 
 ```python
-cell_to_edge = FD.Stencil([-1/2,1/2],der_order=1,axis_type="cell",der_axis_type="edge")
-edge_to_cell = FD.Stencil([-1/2,1/2],der_order=1,axis_type="edge",der_axis_type="cell")
+
+diff_2 = FD.Stencil([-1,0,1],der_order=2)
 ```
 
-The resulting equations are printed, the same for both stencils:
 
-Finite approximation: f' = [-f(x-0.5h) + f(x+0.5h)] / [h^1]
-
-4. Boundary conditions and initial conditions are applied. In this case, the temperature is fixed on one end and the flux is fixed on the other.
+4. Boundary conditions and initial conditions are applied.
 
 ```python
+
 T.set_IC("1")
 T.set_BC("0","x","start")
-Tflux.set_BC("0","x","end")
+T.set_BC("0","x","end")
 ```
 
-5. Run the simulation in a loop, updating the fields each iteration. For efficiency, operations can only be done on fields at the current time.
+5. Run the simulation in a loop, updating the fields each iteration.
 
 ```python
 
 k = 2 # thermal conductivity
 
-# optional check for stability, note that this criteria is only for this particular problem:
-CFL = k*dt/dx**2
-print(f"CFL: {round(CFL,3)}, must be under 0.5 for stability\n")
-
 m.check_IC() # not required, but recommended: check's if all necessary initial conditions have been set up
 
 while not m.finished: # checks if it his reached the final timestep
 
-    # implements the equations: dT/dt=Tflux and Tflux= k*dT/dx
-    dTdx = cell_to_edge.der(T.prev,"x")
-    Tflux.assign_update(k * dTdx)
-    Tp = edge_to_cell.der(Tflux.new,"x")
+    # implements the equations: dT/dt = k * d^2T/dx^2
+    Tp = k*diff_2.der(T.prev)
     T.dot.assign_update(Tp)
     T.time_integrate_update()
 
@@ -70,11 +69,7 @@ while not m.finished: # checks if it his reached the final timestep
 ```python
 m.interact() # creates an interactive visual in a jupyter notebook
 
-# get numpy arrays of the temperature and temperature flux:
-Tflux.data
+# get numpy arrays of the temperature:
 T.data      
 ```
 
-I see this as mainly an educational tool, although if more features are added (e.g. boundary value problems and vector fields), maybe it could be helpful for some research.
-
-Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.

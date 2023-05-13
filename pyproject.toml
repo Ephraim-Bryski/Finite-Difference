@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 [project]
 name = "FiniteDiff"
-version = "0.0.2"
+version = "0.0.4"
 authors = [
-  { name="Ephraim Bryski", email="ebryski1@gmail.com" },
+  { name="Ephraim Bryski", email="ebryski1@gmail.com"},
 ]
 description = "Library for setting up finite difference problems"
 readme = "README.md"

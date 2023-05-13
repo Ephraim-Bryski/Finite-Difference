@@ -1,10 +1,11 @@
 can do very basic simulations in multiple dimensions
 
 Bugs
-
+    plot cant plot edge (not the widget one just the static one)
 
 Additional Stuff Later
 
+    mapping fields between edges and cells
 
     warning if unknowns are spreading (would have to compare second iteration vs first iteration)
 
