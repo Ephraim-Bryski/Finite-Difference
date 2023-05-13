@@ -1,6 +1,6 @@
 # Description
 
-This is a library for setting up basic time-dependent finite difference problems. It handles the array manipulation and gives strict errors when a model isn't being set up correctly. However, it does not check for instability, nor does it check whether the model is actually physically accurate -- that's still up to the user!
+This is a library for setting up basic time-dependent finite difference problems. It handles the array manipulation and gives strict errors when a model isn't being set up correctly. However, it does not check for instability, nor does it check whether the model is actually physically accurate.
 
 I see this mainly as an educational tool, although if more features are added it might be helpful for some research.
 
@@ -24,9 +24,10 @@ This project is licensed under the MIT License -- see the LICENSE file for detai
 
 # Features
 The library can support:
-- Regular grid domains of any number of spatial dimensions
+- Regular grid domains with arbitrary number of spatial dimensions
 - Periodic or fixed boundary conditions
 - Derivative approximations of arbitrary order and arbitrary sampled coordinates
+- Time-dependent scalar fields with values at cells or edges between cells
 
 # Example use.
 
