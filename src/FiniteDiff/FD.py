@@ -24,8 +24,7 @@ class Model:
         """
 
         # check types:
-        assert type(
-            axes) == dict, "axes must be a dictionary of axes and corresponding values"
+        assert type(axes) == dict, "axes must be a dictionary of axes and corresponding values"
         assert type(time_axis) == str, "time_axis must be a string"
 
         if type(periodic) == list:
@@ -46,13 +45,16 @@ class Model:
             if not np.all([isinstance(val, numbers.Number) for val in vals]):
                 return "all values of axis must be numbers"
 
-            if len(vals) == 1:
+            if len(vals) < 2:
                 return "must have more than one value in axis"
 
             diffs = np.diff(vals)
             tolerance = 10**-9  # numpy linspace isn't perfectly spaced
             if not np.all([abs(diffs[0]-diff) < tolerance for diff in diffs]):
                 return "all values of axes must be evenly spaced"
+            
+            if diffs[0]<tolerance:
+                return "axis values cannot be repeated"
 
         for axis_name, axis_vals in axes.items():
 
@@ -65,14 +67,14 @@ class Model:
         # check time axes:
         assert type(time_axis) == str, "time axis must be a string"
         assert time_axis in axes, f"time axis must be one of the axes names, \
-            {time_axis} is not"
+{time_axis} is not"
 
         assert time_axis not in periodic, "time axis can't be periodic"
 
         # check periodic:
         non_axes_periodic = set(periodic)-set(axes.keys())
         assert non_axes_periodic == set(), f"periodic axes must be one of the axes names, \
-            {non_axes_periodic} is/are not"
+{non_axes_periodic} is/are not"
 
         # add properties
         self.axes = axes
@@ -80,6 +82,17 @@ class Model:
         self.time_step = 0
         self.time_axis = time_axis
         self.fields = []
+        self.insufficient_bc = False # this is set to true when data is getting lost, this way it doesn't warn over and over
+
+    def check_IC(self):
+        """
+        checks if all fields with time derivatives have had their initial conditions set
+        """
+        for field in self.fields:
+            if field.dot is not None and not field.IC_set:
+                raise Exception(f"field {field.name} has not had its initial conditions set")
+            
+        print("All initial conditions set!\n")
 
     def increment_time(self):
 
@@ -110,8 +123,10 @@ class Model:
         assert self.time_axis is not None, "need time axis to use interact"
         assert len(self.fields) != 0, "model has no fields"
 
-        # removing time derivatives from options since that would just be too much
-        interact_fields = [field for field in self.fields if "dot" not in field.name]
+
+        # reversed just so time derivatives come after their fields --> weird to have a time derivative to show up first
+        interact_fields = list(self.fields)
+        interact_fields.reverse()
 
         field_names = [field.name for field in interact_fields]
 
@@ -140,11 +155,12 @@ class Model:
         time_axis_idx = self.axes_names.index(self.time_axis)
 
         @widgets.interact(field_name=field_dropdown, t=(min_time, max_time, dt))
-        def update(field_name=field_names[0], t=1):
+        def update(field_name=field_names[0], t=0):
             ax.clear()
             field_idx = field_names.index(field_name)
 
-            data = interact_fields[field_idx].data
+            field = interact_fields[field_idx]
+            data = field.data
 
             # min and max across all data so that the color scale/ylim doesn't change moving through time
             max_val = np.nanmax(data)
@@ -176,7 +192,10 @@ class Model:
             if n_plot_dims == 1:
                 ax.set_ylabel(field_name)
                 ax.set_ylim(min_val, max_val)
-                ax.plot(space_values[0], data_slice, color="blue")
+                # very hacky, but nonperiodic edge axes are one longer in length, so I need to remove one to plot
+                if len(data_slice)>len(x_values):
+                    data_slice = data_slice[:-1]
+                ax.plot(x_values, data_slice, color="blue")
 
             else:
                 y_values = space_values[1]
@@ -245,7 +264,8 @@ class Field:
         model: a Model object which the field is part of, all fields should share the same model
         name: field name, used for labeling plots
         edge_axes: the axes along which the values of the field are at the edges, between cells
-        n_time_ders: number of time derivatives of the field which are used for modelling
+        n_time_ders: number of time derivatives of the field which are used for modelling,
+        use the dot property to get the time derivative of a field
         """
 
         assert isinstance(model, Model), "model must be a Model object"
@@ -255,6 +275,9 @@ class Field:
         axes = model.axes_names
         assert set(edge_axes) - set(axes) == set(), \
             "edge_axes must be axes in the model"
+        
+        assert model.time_axis not in edge_axes, \
+            "edge_axes cannot include the time axis"
 
         assert type(n_time_ders) == int and n_time_ders >= 0, \
             "n_time_ders must be an integer greater than equal to 0"
@@ -283,6 +306,7 @@ class Field:
         self.edge_axes = edge_axes
         self.data = np.full(axes_lengths, np.nan)
         self.updated = False
+        self.IC_set = False # set to True when set_IC method ran, so check_IC can check
 
     @property
     def new(self):
@@ -309,6 +333,8 @@ class Field:
 
         assert not self.updated, "field has already been updated, use new property to get values at the next timestep\n\
             alternatively, you may have forgot to call the increment_time method at the end of the iteration "
+        assert self.dot is not None, "cannot access prev for a field without a time derivative since no initial conditions are set,\n\
+instead first use the assign_update method and then use the new property"
         previous_time = self.model.time_step
         time_axis = self.model.time_axis
         return self.__get_data({time_axis: previous_time})
@@ -327,6 +353,7 @@ class Field:
         time_axis = self.model.time_axis
         assert time_axis != None, "the model must have a time axis to set the initial conditions"
         self.__set_expression(expression, {time_axis: 0})
+        self.IC_set = True # this is only used so the model can check if all ICs with time derivatives have been set before running 
 
     def set_BC(self, expression:str, axis: str, side: str):
 
@@ -342,6 +369,7 @@ class Field:
 
         assert axis != self.model.time_axis, "cannot use BC to set time axis, use set_IC instead"
         assert axis in self.model.axes_names, "axis must be one of the axes names"
+        assert axis not in self.model.periodic, "cannot set boundary conditions to periodic axis"
 
         side_types = ["start", "end"]
         assert side in side_types, f"side must be one of {side_types}"
@@ -371,7 +399,9 @@ class Field:
         def extract_variables(expression):
             # Regular expression pattern for variable names
             pattern = r'\b[A-Za-z_][A-Za-z0-9_]*\b'
+            math_terms = ["exp","abs","sin","cos","tan","arcsin","arccos","arctan","sinh","cosh","tanh"]
             variables = re.findall(pattern, expression)
+            variables = [var for var in variables if var not in math_terms]
             return variables
 
         substitute_axes_names = []
@@ -418,7 +448,7 @@ class Field:
             raise Exception(f"variables {unknown_vars} are not axes names")
         unsubbed_vars = set(variables)-set(substitute_axes_names)
         if len(unsubbed_vars) != 0:
-            raise Exception(f"variables {unsubbed_vars}")
+            raise Exception(f"variables {unsubbed_vars} are axes names along which the expression is being set")
 
         # constructs nested list of all combinations of values
         value_combs = transpose(
@@ -437,12 +467,12 @@ class Field:
 
         data = np.reshape(data_flat, substitute_axes_lengths)
 
-        field_slice = FieldInstant(self.model, self.edge_axes, data)
+        field_slice = FieldInstant(self.model, self.edge_axes, self.name, data)
 
         # allow override allows you to (for example) override boundary conditions with initial conditions or vice versa
         self.__set_data(field_slice, location, allow_override=True)
 
-    def assign_update(self:str, field_slice):
+    def assign_update(self, field_slice):
 
         """
         assigns the values of field_slice to a field at a current time
@@ -453,12 +483,13 @@ class Field:
             or derivatives on these objects
         """
 
-        assert not self.updated, "field already updated"
+        assert not self.updated, "field already updated, you may have forgot to call increment_time on the model"
         assert self.dot == None, "cannot use assign_update on field with time derivative, use time_integrate_update instead"
-        assert isinstance(field_slice, FieldInstant)
+        assert isinstance(field_slice, FieldInstant), "invalid argument, instead use the 'prev' or 'new' properties of a field (or operations on them)"
 
         time_axis = self.model.time_axis
         time = self.model.time_step+1
+
 
         self.__set_data(field_slice, {time_axis: time}, allow_override=False)
         self.updated = True
@@ -476,7 +507,7 @@ class Field:
 
         assert not self.updated, "field already updated"
         assert self.dot != None, "field needs to have time derivative to perform time_integrate"
-        assert self.dot.updated, "time derivative needs to be updated first"
+        assert self.dot.updated, "time derivative needs to be updated first, can be accessed with 'dot' property"
 
         dt = self.model.dt
         new_slice = self.prev + self.dot.new*dt
@@ -484,8 +515,21 @@ class Field:
         time_axis = self.model.time_axis
         time = self.model.time_step+1  # +1 since it's updating the following value
 
+        prev_data = self.prev.data
+
         self.__set_data(new_slice, {time_axis: time}, allow_override=False)
         self.updated = True
+
+        new_data = self.new.data
+
+        prev_nan_count = np.isnan(prev_data).sum()
+        new_nan_count = np.isnan(new_data).sum()
+
+        if new_nan_count > prev_nan_count and not self.model.insufficient_bc:
+            print("Warning: fields are losing data over time\n\
+This is possibly due to insufficent boundary conditions\n")
+            self.model.insufficient_bc = True
+
 
     def __set_data(self, field_slice, location, allow_override):
 
@@ -515,8 +559,8 @@ class Field:
         overriding = not np.all(existing_unknowns)
 
         if allow_override and overriding:
-            # override allowed when bc overrides initial conditions or vice versa (initial setup)
-            warnings.warn("Overriding values", category=Warning)
+            print(f"Boundary conditions and initial conditions may be in conflict for field {field_slice.name}\n\
+Conflicting values override and become equal to whatever was assigned last\n")
         elif not allow_override and overriding:
             raise Exception("attempting to override values")
 
@@ -533,7 +577,7 @@ class Field:
         data = self.data
         data_slice = data[self.__idxs_tuple(location)]
 
-        return FieldInstant(self.model, self.edge_axes, data_slice)
+        return FieldInstant(self.model, self.edge_axes, self.name, data_slice)
 
     def __idxs_tuple(self, idxs):
 
@@ -690,7 +734,7 @@ class Field:
 
 class FieldInstant:
 
-    def __init__(self, model, edge_axes, data):
+    def __init__(self, model, edge_axes, name, data):
 
         """
         field at one instant of time
@@ -701,6 +745,7 @@ class FieldInstant:
 
         self.model = model
         self.edge_axes = edge_axes
+        self.name = name
         self.data = data
 
     def __str__(self) -> str:
@@ -745,7 +790,7 @@ class FieldInstant:
 
             new_data = operation(operand_data[0], operand_data[1])
 
-        new_field = FieldInstant(op1.model, op1.edge_axes, new_data)
+        new_field = FieldInstant(op1.model, op1.edge_axes, op1.name, new_data)
 
         return new_field
 
@@ -817,7 +862,7 @@ class Stencil:
 
         if len(sample_points) <= der_order:
             raise Exception(
-                "there must be at least one more points than the derivative order")
+                "there must be at least one more point than the derivative order")
 
         from_edge = axis_type == "edge"
         to_edge = der_axis_type == "edge"
@@ -875,6 +920,8 @@ class Stencil:
         self.from_edge = from_edge
         self.to_edge = to_edge
 
+        self.to_text()
+
     def to_text(self):
 
         """
@@ -899,23 +946,29 @@ class Stencil:
         equation = equation.replace(")+", ") + ")
         equation = equation.replace(")-", ") - ")
 
-        print(f"Finite approximation: {equation}")
+        print(f"Finite approximation: {equation}\n")
 
-    def der(stencil, f:Field, der_axis):
+    def der(stencil, f:FieldInstant, der_axis: str):
 
         """
         returns the derivative of f at the current time using the stencil
-        performs derivative operation along der_axi
+        performs derivative operation along der_axis
+
+        stencil: a Stencil object defining the numerical derivative
+        f: the Field object to take the derivative of
+        der_axis: the axis to take the derivative along
         """
 
 
-        assert isinstance(
-            f, FieldInstant), "Can only perform derivative on a field at a moment, use prev or new properties of the field"
+        assert isinstance(f, FieldInstant), "Can only perform derivative on a field at a moment, use prev or new properties of the field"
         assert isinstance(stencil, Stencil), "stencil must be a Stencil object"
-        assert f.model.time_axis != None, "why would you update derivative with no time axis"
-
+        assert type(der_axis) == str, "der_axis must be a string of the axis name"
+        assert f.model.time_axis is not None, "cannot take derivative of a field with no time axis"
+        
         non_time_axes = f.model.axes_names
         non_time_axes.remove(f.model.time_axis)
+
+        assert der_axis in non_time_axes, f"der_axis must be a spatial axis, '{der_axis}' is not"
 
         axis_n = non_time_axes.index(der_axis)
 
@@ -960,8 +1013,7 @@ class Stencil:
             derivative = np.zeros(f.data.shape)
 
             for i in range(len(shifts)):
-                derivative += weights[i] * \
-                    np.roll(f.data, shifts[i], axis=axis_n)
+                derivative += weights[i] * np.roll(f.data, shifts[i], axis=axis_n)
 
         # not periodic case:
         else:
@@ -1013,13 +1065,21 @@ class Stencil:
 
             derivative[placement_idxs] = section_derivative
 
-        derivative_edge_axes = f.edge_axes.copy()
+        step_sizes = dict(zip(f.model.axes_names,f.model.axes_step_size))
+        dx = step_sizes[der_axis]
+
+        derivative /= dx**stencil.der_order
+
+        if np.any(np.isinf(derivative)):
+            raise Exception("Instability has led to infinite values, considering decreasing timestep")
+
+        derivative_edge_axes = list(f.edge_axes)
 
         if stencil.from_edge and not stencil.to_edge:
             derivative_edge_axes.remove(der_axis)
         elif not stencil.from_edge and stencil.to_edge:
             derivative_edge_axes += der_axis
 
-        return FieldInstant(f.model, derivative_edge_axes, derivative)
+        return FieldInstant(f.model, derivative_edge_axes, f.name, derivative)
 
 

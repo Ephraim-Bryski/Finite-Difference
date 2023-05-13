@@ -3,41 +3,24 @@ can do very basic simulations in multiple dimensions
 Bugs
 
 
-
-User Messages/Interface Improvements
-
-    having time derivative fields for dropdown is a bit too much --> mabye filter out fields with "dot" in the name
-
-    overall better error messages --> specify names (e.g. of axes) whenever possible
-
-
-
-
+Additional Stuff Later
 
 
     warning if unknowns are spreading (would have to compare second iteration vs first iteration)
 
-    add assertion that all IC are set up properly before starting the run 
-
-
-
-
-
-Additional Stuff Later
-
     actually good visualization of fields
 
-    when setting expressions, you can't include variable values cause it's just strings
-        not sure how to fix this one D:
 
     set initial conditions to piecewise function
         specify range of values to set it for as an optional argument
         allow to get data based on coordinate instead of index
 
-    runge-kutta
+    runge-kutta and implicit time schemes
+
+    some way of handling stencils with coordinates that aren't just immediate neighbors
+        have an asymmetric stencil at the boundaries
+        make the boundary condition have some thickness, so data isn't lost
 
     solve BVP
-
-    constant field which can't be updated (e.g. for depth for the wave equation)
 
     vector fields (and operations like grad div)
