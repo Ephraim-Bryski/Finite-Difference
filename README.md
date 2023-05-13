@@ -5,6 +5,8 @@ I see this as mainly an educational tool, although if more features are added (e
 
 Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.
 
+
+
 Procedure for performing a simulation, the sample code showing the creation of a model for thermal diffusion:
 
 0. Import the module.
