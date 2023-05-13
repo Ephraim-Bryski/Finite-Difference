@@ -2,7 +2,7 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 [project]
-name = "ephraim_finitediff"
+name = "finite_difference"
 version = "0.0.1"
 authors = [
   { name="Ephraim Bryski", email="ebryski1@gmail.com"},

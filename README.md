@@ -9,11 +9,11 @@ I see this mainly as an educational tool, although if more features are added it
 
 To install:
 ```
-pip install FiniteDiff
+pip install finite_difference
 ```
 Then to import:
 ```python
-# TODO need to figure out what the import will look like
+import finite_difference as fd
 ```
 
 # Contributing
@@ -34,21 +34,21 @@ Shown is all the code required for setting up a thermal diffusion model. For mor
 
 ```python
 
-m = FD.Model({"x": range(1,100,4), "t": range(1,10)}, time_axis = "t")
+m = fd.Model({"x": range(1,100,4), "t": range(1,10)}, time_axis = "t")
 ```
 
 2. Create fields representing a property that changes over time as a scalar field. 
 
 ```python
 
-T = FD.Field(m, "Temperature", n_time_ders = 1)
+T = fd.Field(m, "Temperature", n_time_ders = 1)
 ```
 
 3. Create stencils for numerical approximations of spatial derivatives.
 
 ```python
 
-diff_2 = FD.Stencil([-1,0,1],der_order=2)
+diff_2 = fd.Stencil([-1,0,1],der_order=2)
 ```
 
 
