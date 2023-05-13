@@ -26,7 +26,7 @@ The library can support:
 - Derivative approximations of arbitrary order and arbitrary sampled coordinates
 - Time-dependent scalar fields with values at cells or edges between cells
 
-# Example use.
+# Example Use
 
 Shown is all the code required for setting up a thermal diffusion model. For more examples, see [the Google Colab](https://colab.research.google.com/drive/1RL2nIeBTFvzbeLya2Qv0NR_kOcZW_Tr9#scrollTo=StZOQhW4wIzp)
 
