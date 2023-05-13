@@ -88,6 +88,6 @@ while not m.finished: # checks if it his reached the final timestep
 ```python
 m.interact() # creates an interactive visual in a jupyter notebook
 
-# get numpy arrays of the temperature:
+# get numpy array of the temperature:
 T.data      
 ```
