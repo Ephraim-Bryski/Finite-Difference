@@ -1,21 +1,36 @@
+# Description
+
 This is a library for setting up basic time-dependent finite difference problems. It handles the array manipulation and gives strict errors when a model isn't being set up correctly. However, it does not check for instability, nor does it check whether the model is actually physically accurate -- that's still up to the user!
 
-
-I see this as mainly an educational tool, although if more features are added (e.g. boundary value problems and vector fields), maybe it could be helpful for some research.
-
-Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.
+I see this mainly as an educational tool, although if more features are added it might be helpful for some research.
 
 
+# Installation
 
-Procedure for performing a simulation, the sample code showing the creation of a model for thermal diffusion:
-
-For more examples, see [the Google Colab](https://colab.research.google.com/drive/1RL2nIeBTFvzbeLya2Qv0NR_kOcZW_Tr9#scrollTo=StZOQhW4wIzp)
-
-0. Import the module.
-
+To install:
+```
+pip install FiniteDiff
+```
+Then to import:
 ```python
 # TODO need to figure out what the import will look like
 ```
+
+# Contributing
+Any contribution or feedback is very welcome -- feel free to create an issue on github. In particular, if you are getting unexpected behavior or unclear errors, or if there's something you would like to see added, I would want to hear.
+
+# License
+This project is licensed under the MIT License -- see the LICENSE file for details. 
+
+# Features
+The library can support:
+- Regular grid domains of any number of spatial dimensions
+- Periodic or fixed boundary conditions
+- Derivative approximations of arbitrary order and arbitrary sampled coordinates
+
+# Example use.
+
+Shown is all the code required for setting up a thermal diffusion model. For more examples, see [the Google Colab](https://colab.research.google.com/drive/1RL2nIeBTFvzbeLya2Qv0NR_kOcZW_Tr9#scrollTo=StZOQhW4wIzp)
 
 1. Create a single Model object for the domain, with a time dimension and space dimension(s).
 
