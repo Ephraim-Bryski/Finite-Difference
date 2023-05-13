@@ -7,7 +7,6 @@ I see this mainly as an educational tool, although if more features are added it
 
 # Installation
 
-To install:
 ```
 pip install finite_difference
 ```
