@@ -1,5 +1,10 @@
 This is a library for setting up basic time-dependent finite difference problems. It handles the array manipulation and gives strict errors when a model isn't being set up correctly. However, it does not check for instability, nor does it check whether the model is actually physically accurate -- that's still up to the user!
 
+
+I see this as mainly an educational tool, although if more features are added (e.g. boundary value problems and vector fields), maybe it could be helpful for some research.
+
+Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.
+
 Procedure for performing a simulation, the sample code showing the creation of a model for thermal diffusion:
 
 0. Import the module.
@@ -74,7 +79,3 @@ m.interact() # creates an interactive visual in a jupyter notebook
 Tflux.data
 T.data      
 ```
-
-I see this as mainly an educational tool, although if more features are added (e.g. boundary value problems and vector fields), maybe it could be helpful for some research.
-
-Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.
