@@ -20,7 +20,7 @@ Then to import:
 Any contribution or feedback is very welcome -- feel free to create an issue on github. In particular, if you are getting unexpected behavior or unclear errors, or if there's something you would like to see added, I would want to hear.
 
 # License
-This project is licensed under the MIT License -- see the LICENSE file for details. 
+This project is licensed under the MIT License. 
 
 # Features
 The library can support:
