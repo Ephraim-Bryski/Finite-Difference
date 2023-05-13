@@ -9,11 +9,7 @@ Any contribution or feedback is very welcome -- feel free to create an issue on 
 
 Procedure for performing a simulation, the sample code showing the creation of a model for thermal diffusion:
 
-I see this as mainly an educational tool, although if more features are added (e.g. boundary value problems and vector fields), maybe it could be helpful for some research.
-
-Any contribution or feedback is very welcome -- feel free to create an issue on github or email me at ebryski1@gmail.com.
-
-For more examples, see TODO link
+For more examples, see [the Google Colab](https://colab.research.google.com/drive/1RL2nIeBTFvzbeLya2Qv0NR_kOcZW_Tr9#scrollTo=StZOQhW4wIzp)
 
 0. Import the module.
 
@@ -79,7 +75,3 @@ m.interact() # creates an interactive visual in a jupyter notebook
 # get numpy arrays of the temperature:
 T.data      
 ```
-<<<<<<< HEAD
-
-=======
->>>>>>> 64cadc3fa4cb46b65e53fd828ac544b02d05140d
