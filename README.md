@@ -11,10 +11,6 @@ To install:
 ```
 pip install finite_difference
 ```
-Then to import:
-```python
-import finite_difference as fd
-```
 
 # Contributing
 Any contribution or feedback is very welcome -- feel free to create an issue on github. In particular, if you are getting unexpected behavior or unclear errors, or if there's something you would like to see added, I would want to hear.
@@ -33,7 +29,7 @@ Shown is all the code required for setting up a thermal diffusion model. For mor
 1. Create a single Model object for the domain, with a time dimension and space dimension(s).
 
 ```python
-
+import finite_difference as fd
 m = fd.Model({"x": range(1,100,4), "t": range(1,10)}, time_axis = "t")
 ```
 
