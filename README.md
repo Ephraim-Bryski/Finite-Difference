@@ -53,10 +53,6 @@ Tflux.set_BC("0","x","end")
 
 k = 2 # thermal conductivity
 
-# optional check for stability, note that this criteria is only for this particular problem:
-CFL = k*dt/dx**2
-print(f"CFL: {round(CFL,3)}, must be under 0.5 for stability\n")
-
 m.check_IC() # not required, but recommended: check's if all necessary initial conditions have been set up
 
 while not m.finished: # checks if it his reached the final timestep
