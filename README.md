@@ -52,7 +52,7 @@ diff_2 = FD.Stencil([-1,0,1],der_order=2)
 ```
 
 
-4. Boundary conditions and initial conditions are applied.
+4. Apply boundary conditions and initial conditions.
 
 ```python
 
@@ -79,7 +79,7 @@ while not m.finished: # checks if it his reached the final timestep
     m.increment_time() # increment the time step
 ```
 
-6. Once the run is complete, an interactive visual can be created showing the fields over time. Alternatively, the user can get the values of the fields across all time as numpy arrays with the field's data property.
+6. Once the run is complete, an interactive visual can be created showing the fields over time. Alternatively, you can get the values of the fields across all time as numpy arrays with the field's data property.
 
 
 ```python
