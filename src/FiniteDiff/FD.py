@@ -110,7 +110,10 @@ class Model:
         assert self.time_axis is not None, "need time axis to use interact"
         assert len(self.fields) != 0, "model has no fields"
 
-        field_names = [field.name for field in self.fields]
+        # removing time derivatives from options since that would just be too much
+        interact_fields = [field for field in self.fields if "dot" not in field.name]
+
+        field_names = [field.name for field in interact_fields]
 
         field_dropdown = widgets.Dropdown(
             options=field_names, description='Field')
@@ -141,7 +144,7 @@ class Model:
             ax.clear()
             field_idx = field_names.index(field_name)
 
-            data = self.fields[field_idx].data
+            data = interact_fields[field_idx].data
 
             # min and max across all data so that the color scale/ylim doesn't change moving through time
             max_val = np.nanmax(data)
@@ -643,7 +646,7 @@ class Field:
         plt.xlabel(x_axis)
 
     def __str__(self) -> str:
-        return f"{len(self.model.axes_names)}-dimensional Field, dimension lengths: {dict(zip(self.model.axes_names,self.model.axes_lengths))}"
+        return f"{len(self.model.axes_names)}-dimensional Field named {self.name}, dimension lengths: {dict(zip(self.model.axes_names,self.model.axes_lengths))}"
 
     @staticmethod
     def __field_op():
@@ -691,7 +694,7 @@ class FieldInstant:
 
         """
         field at one instant of time
-        constructed by now and next method, \
+        constructed by new and prev method, \
             and required for update and update_time_integrate methods
         not recommended to be constructed by user directly
         """
@@ -699,6 +702,10 @@ class FieldInstant:
         self.model = model
         self.edge_axes = edge_axes
         self.data = data
+
+    def __str__(self) -> str:
+        return f"{len(self.model.axes_names)}-dimensional field at the current time,\n\
+              Dimension lengths: {dict(zip(self.model.axes_names,self.model.axes_lengths))}"
 
     def __field_op(op1, op2, operation):
 
