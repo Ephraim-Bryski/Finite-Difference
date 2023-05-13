@@ -23,7 +23,7 @@ The library can support:
 
 # Example Use
 
-Shown is all the code required for setting up a thermal diffusion model. For more examples, see [the Google Colab](https://colab.research.google.com/drive/1RL2nIeBTFvzbeLya2Qv0NR_kOcZW_Tr9#scrollTo=StZOQhW4wIzp)
+Shown is all the code required for setting up a thermal diffusion model. For more examples, see [the Google Colab](https://colab.research.google.com/drive/1RL2nIeBTFvzbeLya2Qv0NR_kOcZW_Tr9#scrollTo=StZOQhW4wIzp).
 
 1. Create a single Model object for the domain, with a time dimension and space dimension(s).
 
