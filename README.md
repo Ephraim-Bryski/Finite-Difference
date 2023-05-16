@@ -43,7 +43,7 @@ T = fd.Field(m, "Temperature", n_time_ders = 1)
 
 ```python
 
-diff_2 = fd.Stencil([-1,0,1],der_order=2)
+diff_2 = fd.Stencil([-1,0,1], der_order = 2)
 ```
 
 
@@ -62,9 +62,9 @@ T.set_BC("0","x","end")
 
 k = 2 # thermal conductivity
 
-m.check_IC() # not required, but recommended: check's if all necessary initial conditions have been set up
+m.check_IC() # not required, but recommended: checks if all necessary initial conditions have been set up
 
-while not m.finished: # checks if it his reached the final timestep
+while not m.finished: # checks if it has reached the final timestep
 
     # implements the equations: dT/dt = k * d^2T/dx^2
     Tp = k*diff_2.der(T.prev)
