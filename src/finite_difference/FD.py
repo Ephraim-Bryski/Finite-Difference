@@ -1052,7 +1052,7 @@ class Stencil:
             derivative = np.zeros(f.data.shape)
 
             for i in range(len(shifts)):
-                derivative += weights[i] * np.roll(f.data, shifts[i], axis=axis_n)
+                derivative += weights[i] * np.roll(f.data, -shifts[i], axis=axis_n)
 
         # not periodic case:
         else:
